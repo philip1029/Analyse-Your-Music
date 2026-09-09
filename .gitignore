@@ -1,0 +1,5 @@
+.env
+data/*.csv
+backend/cache/
+__pycache__/
+**/.DS_Store

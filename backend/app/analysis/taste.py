@@ -49,9 +49,31 @@ CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "cache" / "artists"
 
 def _slugify(artist_name: str) -> str:
     import re
+    import hashlib
     slug = artist_name.lower().strip()
     slug = re.sub(r"[^a-z0-9가-힣]+", "_", slug)
-    return slug.strip("_") or "unknown"
+    slug = slug.strip("_") or "unknown"
+
+    # 공동 크레딧 등으로 아티스트명이 아주 길면 파일명이 파일시스템 한도(보통 255바이트)를
+    # 넘어 OSError가 나므로, 길면 잘라내고 원본 전체를 반영한 해시를 붙여 구분한다.
+    if len(slug.encode("utf-8")) > 100:
+        digest = hashlib.sha1(artist_name.encode("utf-8")).hexdigest()[:10]
+        truncated = slug.encode("utf-8")[:80].decode("utf-8", errors="ignore").strip("_")
+        slug = f"{truncated}_{digest}"
+
+    return slug
+
+
+def load_artist_tags(artist_name: str, tag_cache: dict[str, list]) -> list:
+    """캐시에서 아티스트 태그를 읽어온다 (메모리 캐시로 같은 아티스트 파일 재조회 방지)."""
+    if artist_name not in tag_cache:
+        cache_path = CACHE_DIR / f"{_slugify(artist_name)}.json"
+        if not cache_path.exists():
+            tag_cache[artist_name] = []
+        else:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                tag_cache[artist_name] = json.load(f)
+    return tag_cache[artist_name]
 
 
 def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
@@ -115,15 +137,7 @@ def compute_tag_evolution(df: pd.DataFrame, top_n_tags: int = 6) -> dict:
         artist_counts = period_df["artist"].value_counts()
 
         for artist_name, play_count in artist_counts.items():
-            if artist_name not in tag_cache:
-                cache_path = CACHE_DIR / f"{_slugify(artist_name)}.json"
-                if not cache_path.exists():
-                    tag_cache[artist_name] = []
-                    continue
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    tag_cache[artist_name] = json.load(f)
-
-            tags = tag_cache[artist_name]
+            tags = load_artist_tags(artist_name, tag_cache)
             for tag in tags[:5]:
                 tag_name = tag["name"].lower()
                 weight = (tag["count"] / 100) * play_count
@@ -166,15 +180,7 @@ def compute_tag_evolution_dynamic(df: pd.DataFrame, top_n_tags: int = 6) -> dict
         artist_counts = period_df["artist"].value_counts()
 
         for artist_name, play_count in artist_counts.items():
-            if artist_name not in tag_cache:
-                cache_path = CACHE_DIR / f"{_slugify(artist_name)}.json"
-                if not cache_path.exists():
-                    tag_cache[artist_name] = []
-                    continue
-                with open(cache_path, "r", encoding="utf-8") as f:
-                    tag_cache[artist_name] = json.load(f)
-
-            tags = tag_cache[artist_name]
+            tags = load_artist_tags(artist_name, tag_cache)
             for tag in tags[:5]:
                 tag_name = tag["name"].lower()
                 weight = (tag["count"] / 100) * play_count

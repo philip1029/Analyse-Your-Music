@@ -12,7 +12,7 @@ def _top_n(df: pd.DataFrame, column: str, n: int = 10) -> list[tuple[str, int]]:
 
 def build_ai_prompt(df: pd.DataFrame) -> str:
     df = df.copy()
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
 
     total_scrobbles = len(df)

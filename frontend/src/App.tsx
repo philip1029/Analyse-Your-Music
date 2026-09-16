@@ -428,7 +428,7 @@ const handleCopyPrompt = () => {
 
   const [tagDistribution, setTagDistribution] = useState<TagDistribution | null>(null);
   const [tagEvolution, setTagEvolution] = useState<TagEvolution | null>(null);
-  const [evolutionMode, setEvolutionMode] = useState<"fixed" | "dynamic">("fixed");
+  const [evolutionMode, setEvolutionMode] = useState<"fixed" | "dynamic">("dynamic");
 
   const [diversity, setDiversity] = useState<Diversity | null>(null);
 

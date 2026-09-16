@@ -253,15 +253,6 @@ def refresh_scrobbles():
     return {"success": True, "output": result.stdout[-2000:]}
 
 @app.get("/api/taste/evolution")
-def taste_evolution(start: str | None = None, end: str | None = None):
-    df = get_filtered_df(start, end)
-    if df is None:
-        return {"error": "data 폴더에 csv 파일이 없습니다."}
-
-    result = compute_tag_evolution(df)
-    return result
-
-@app.get("/api/taste/evolution")
 def taste_evolution(
     start: str | None = None,
     end: str | None = None,

@@ -1,9 +1,17 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   BarChart,
   Bar,
   LineChart,
   Line,
+  AreaChart,
+  Area,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -128,19 +136,8 @@ function yearRange(year: number): DateRange {
 
 const BASE_URL = "http://localhost:8000";
 
-function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
+function YearHeatmap({ year, data }: { year: string; data: DailyPoint[] }) {
   const countMap = new Map(data.map((d) => [d.date, d.count]));
-
-  if (data.length === 0) return null;
-
-  // 데이터 범위의 시작일을 그 주의 일요일로 맞춤
-  const dates = data.map((d) => new Date(d.date)).sort((a, b) => a.getTime() - b.getTime());
-  const firstDate = new Date(dates[0]);
-  const lastDate = new Date(dates[dates.length - 1]);
-
-  const startDate = new Date(firstDate);
-  startDate.setDate(startDate.getDate() - startDate.getDay());
-
   const maxCount = Math.max(...data.map((d) => d.count), 1);
 
   const getColor = (count: number) => {
@@ -152,10 +149,14 @@ function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
     return "#216e39";
   };
 
-  const weeks: { date: string; count: number }[][] = [];
-  let cursor = new Date(startDate);
+  const startDate = new Date(`${year}-01-01`);
+  startDate.setDate(startDate.getDate() - startDate.getDay());
+  const endDate = new Date(`${year}-12-31`);
 
-  while (cursor <= lastDate) {
+  const weeks: { date: string; count: number }[][] = [];
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
     const week: { date: string; count: number }[] = [];
     for (let i = 0; i < 7; i++) {
       const dateStr = cursor.toISOString().slice(0, 10);
@@ -172,7 +173,7 @@ function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
 
   weeks.forEach((week, wi) => {
     const d = new Date(week[0].date);
-    if (d.getMonth() !== lastMonth) {
+    if (d.getFullYear() === Number(year) && d.getMonth() !== lastMonth) {
       monthLabels.push({
         label: d.toLocaleDateString("ko-KR", { month: "short" }),
         x: wi * (cellSize + cellGap),
@@ -185,36 +186,219 @@ function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
   const height = 7 * (cellSize + cellGap) + 20;
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <svg width={width} height={height}>
-        {monthLabels.map((m, i) => (
-          <text key={i} x={m.x} y={10} fontSize={10} fill="#888">
-            {m.label}
-          </text>
-        ))}
-        {weeks.map((week, wi) =>
-          week.map((day, di) => (
-            <rect
-              key={`${wi}-${di}`}
-              x={wi * (cellSize + cellGap)}
-              y={di * (cellSize + cellGap) + 20}
-              width={cellSize}
-              height={cellSize}
-              rx={2}
-              fill={getColor(day.count)}
-            >
-              <title>
-                {day.date}: {day.count}회
-              </title>
-            </rect>
-          ))
-        )}
+    <div style={{ marginBottom: "1.5rem" }}>
+      <h4 style={{ margin: "0 0 0.3rem 0" }}>{year}</h4>
+      <div style={{ overflowX: "auto" }}>
+        <svg width={width} height={height}>
+          {monthLabels.map((m, i) => (
+            <text key={i} x={m.x} y={10} fontSize={10} fill="#888">
+              {m.label}
+            </text>
+          ))}
+          {weeks.map((week, wi) =>
+            week.map((day, di) => {
+              const inYear = day.date.startsWith(year);
+              return (
+                <rect
+                  key={`${wi}-${di}`}
+                  x={wi * (cellSize + cellGap)}
+                  y={di * (cellSize + cellGap) + 20}
+                  width={cellSize}
+                  height={cellSize}
+                  rx={2}
+                  fill={inYear ? getColor(day.count) : "transparent"}
+                >
+                  {inYear && (
+                    <title>
+                      {day.date}: {day.count}회
+                    </title>
+                  )}
+                </rect>
+              );
+            })
+          )}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function interpolateColor(a: string, b: string, t: number) {
+  const ah = parseInt(a.slice(1), 16);
+  const bh = parseInt(b.slice(1), 16);
+  const ar = (ah >> 16) & 0xff, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+  const br = (bh >> 16) & 0xff, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+  const rr = Math.round(ar + (br - ar) * t);
+  const rg = Math.round(ag + (bg - ag) * t);
+  const rb = Math.round(ab + (bb - ab) * t);
+  return `rgb(${rr},${rg},${rb})`;
+}
+
+function ListeningClock({ data }: { data: ChartPoint[] }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; hour: number; count: number } | null>(null);
+
+  if (data.length === 0) return null;
+
+  const counts = data.map((d) => d.count);
+  const maxCount = Math.max(...counts, 1);
+  const busiestHour = counts.indexOf(maxCount);
+
+  const formatHourKorean = (h: number) => {
+    const period = h < 12 ? "오전" : "오후";
+    let displayHour = h % 12;
+    if (displayHour === 0) displayHour = 12;
+    return `${period} ${displayHour}시`;
+  };
+
+  const size = 320;
+  const cx = size / 2;
+  const cy = size / 2;
+  const rInner = 55;
+  const rOuterMax = size / 2 - 10;
+  const gapDeg = 2;
+
+  const polarToCartesian = (r: number, angleDeg: number) => {
+    const angleRad = ((angleDeg - 90) * Math.PI) / 180;
+    return { x: cx + r * Math.cos(angleRad), y: cy + r * Math.sin(angleRad) };
+  };
+
+  const describeWedge = (rOuter: number, startAngle: number, endAngle: number) => {
+    const startOuter = polarToCartesian(rOuter, endAngle);
+    const endOuter = polarToCartesian(rOuter, startAngle);
+    const startInner = polarToCartesian(rInner, endAngle);
+    const endInner = polarToCartesian(rInner, startAngle);
+    const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+    return [
+      "M", startOuter.x, startOuter.y,
+      "A", rOuter, rOuter, 0, largeArcFlag, 0, endOuter.x, endOuter.y,
+      "L", endInner.x, endInner.y,
+      "A", rInner, rInner, 0, largeArcFlag, 1, startInner.x, startInner.y,
+      "Z",
+    ].join(" ");
+  };
+
+  const handleMove = (e: React.MouseEvent, h: number) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, hour: h, count: data[h].count });
+  };
+
+  return (
+    <div ref={containerRef} style={{ position: "relative", display: "flex", alignItems: "center", gap: "2.5rem", flexWrap: "wrap" }}>
+      <style>{`
+        @keyframes clockWedgeGrow {
+          from { transform: scale(0); }
+          to { transform: scale(1); }
+        }
+      `}</style>
+
+      <svg width={size} height={size}>
+        {data.map((d, h) => {
+          const startAngle = h * 15 + gapDeg / 2;
+          const endAngle = (h + 1) * 15 - gapDeg / 2;
+          const ratio = d.count / maxCount;
+          const rOuter = rInner + (rOuterMax - rInner) * ratio;
+          const isHovered = tooltip?.hour === h;
+
+        return (
+          <g
+            key={h}
+            onMouseMove={(e) => handleMove(e, h)}
+            onMouseLeave={() => setTooltip(null)}
+            style={{ cursor: "pointer" }}
+          >
+            <path d={describeWedge(rOuterMax, startAngle, endAngle)} fill={isHovered ? "#ddd" : "#eee"} />
+            {d.count > 0 && (
+              <path
+                d={describeWedge(rOuter, startAngle, endAngle)}
+                fill={interpolateColor("#bfdbfe", "#2563eb", ratio)}
+                stroke={isHovered ? "#111" : "none"}
+                strokeWidth={isHovered ? 1.5 : 0}
+                style={{
+                  transformOrigin: `${cx}px ${cy}px`,
+                  animation: `clockWedgeGrow 0.4s ease-out ${h * 0.02}s both`,
+                }}
+              />
+            )}
+          </g>
+        );
+        })}
+        <text x={cx} y={cy - rInner * 0.55} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#888">00</text>
+        <text x={cx + rInner * 0.6} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#888">06</text>
+        <text x={cx} y={cy + rInner * 0.65} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#888">12</text>
+        <text x={cx - rInner * 0.6} y={cy} textAnchor="middle" dominantBaseline="middle" fontSize={13} fill="#888">18</text>
       </svg>
+
+      <div>
+        <p style={{ color: "#888", margin: "0 0 4px 0" }}>가장 붐비는 시간대</p>
+        <p style={{ fontSize: "1.8rem", fontWeight: "bold", margin: "0 0 1.2rem 0" }}>
+          {formatHourKorean(busiestHour)}
+        </p>
+        <p style={{ color: "#888", margin: "0 0 4px 0" }}>가장 바쁜 시간대의 스크로블</p>
+        <p style={{ fontSize: "1.8rem", fontWeight: "bold", margin: 0 }}>{maxCount}</p>
+      </div>
+
+      {tooltip && (
+        <div
+          style={{
+            position: "absolute",
+            left: tooltip.x + 14,
+            top: tooltip.y + 14,
+            background: "#222",
+            color: "white",
+            padding: "0.5rem 0.75rem",
+            borderRadius: 6,
+            fontSize: "0.85rem",
+            pointerEvents: "none",
+            whiteSpace: "nowrap",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+            zIndex: 20,
+          }}
+        >
+          <div style={{ fontWeight: "bold" }}>{formatHourKorean(tooltip.hour)}</div>
+          <div>{tooltip.count}회 스크로블</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
+  if (data.length === 0) return null;
+
+  const years = Array.from(new Set(data.map((d) => d.date.slice(0, 4)))).sort();
+
+  return (
+    <div>
+      {years.map((year) => (
+        <YearHeatmap key={year} year={year} data={data} />
+      ))}
     </div>
   );
 }
 
 function App() {
+  const [aiPrompt, setAiPrompt] = useState<string | null>(null);
+  const [generatingPrompt, setGeneratingPrompt] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+const handleGeneratePrompt = () => {
+  setGeneratingPrompt(true);
+  fetch(`${BASE_URL}/api/ai-prompt${buildQuery()}`)
+    .then((res) => res.json())
+    .then((data) => setAiPrompt(data.prompt))
+    .catch((err) => setError(err.message))
+    .finally(() => setGeneratingPrompt(false));
+};
+
+const handleCopyPrompt = () => {
+  if (!aiPrompt) return;
+  navigator.clipboard.writeText(aiPrompt);
+  setCopied(true);
+  setTimeout(() => setCopied(false), 2000);
+};
+
   const [dailyData, setDailyData] = useState<DailyPoint[]>([]);
 
   const [discoverySummary, setDiscoverySummary] = useState<DiscoverySummary | null>(null);
@@ -653,34 +837,31 @@ function App() {
       {/* Listening 탭 */}
       {activeTab === "listening" && (
         <>
-          <h2>시간대별 청취 패턴</h2>
-          <ResponsiveContainer width="100%" height={350}>
-            <BarChart data={hourlyData} margin={{ bottom: 40 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis
-                dataKey="label"
-                interval={0}
-                angle={-45}
-                textAnchor="end"
-                tick={{ fontSize: 13 }}
-                height={60}
-              />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="count" fill="#8884d8" />
-            </BarChart>
-          </ResponsiveContainer>
+        <h2>청취 시계</h2>
+        <ListeningClock data={hourlyData} />
 
-          <h2>요일별 청취 패턴</h2>
+          <h2>주간 스크로블</h2>
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={weekdayData}>
+            <AreaChart data={weekdayData}>
+              <defs>
+                <linearGradient id="weeklyGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#8884d8" stopOpacity={0.6} />
+                  <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="count" fill="#82ca9d" />
-            </BarChart>
+              <Area type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} fill="url(#weeklyGradient)" />
+            </AreaChart>
           </ResponsiveContainer>
+          {weekdayData.length > 0 && (
+            <p style={{ color: "#888" }}>
+              가장 바쁜 요일: {[...weekdayData].sort((a, b) => b.count - a.count)[0].label} (
+              {[...weekdayData].sort((a, b) => b.count - a.count)[0].count}회)
+            </p>
+          )}
 
           <h2>월별 청취 추이</h2>
           <ResponsiveContainer width="100%" height={300}>
@@ -841,35 +1022,66 @@ function App() {
                 </div>
               </div>
 
-              <ResponsiveContainer width="100%" height={400}>
-                <LineChart
-                  data={tagEvolution.periods.map((period, i) => {
-                    const row: Record<string, string | number | null> = { period };
-                    tagEvolution.series.forEach((s) => {
-                      row[s.tag] = s.values[i];
-                    });
-                    return row;
-                  })}
-                >
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                  <YAxis />
-                  <Tooltip />
-                  {tagEvolution.series.map((s, i) => (
-                    <Line
-                      key={s.tag}
-                      type="monotone"
-                      dataKey={s.tag}
-                      stroke={
-                        ["#8884d8", "#82ca9d", "#ff7f50", "#ffc658", "#a4de6c", "#d0ed57", "#d62728", "#9467bd"][
-                          i % 8
-                        ]
-                      }
-                      connectNulls={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              {evolutionMode === "fixed" ? (
+                <ResponsiveContainer width="100%" height={400}>
+                  <AreaChart
+                    data={tagEvolution.periods.map((period, i) => {
+                      const row: Record<string, string | number> = { period };
+                      tagEvolution.series.forEach((s) => {
+                        row[s.tag] = s.values[i] ?? 0;
+                      });
+                      return row;
+                    })}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                    <YAxis />
+                    <Tooltip />
+                    {tagEvolution.series.map((s, i) => {
+                      const color = ["#8884d8", "#82ca9d", "#ff7f50", "#ffc658", "#a4de6c", "#d0ed57", "#d62728", "#9467bd"][
+                        i % 8
+                      ];
+                      return (
+                        <Area
+                          key={s.tag}
+                          type="monotone"
+                          dataKey={s.tag}
+                          stackId="1"
+                          stroke={color}
+                          fill={color}
+                          fillOpacity={0.6}
+                        />
+                      );
+                    })}
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <ResponsiveContainer width="100%" height={400}>
+                  <LineChart
+                    data={tagEvolution.periods.map((period, i) => {
+                      const row: Record<string, string | number | null> = { period };
+                      tagEvolution.series.forEach((s) => {
+                        row[s.tag] = s.values[i];
+                      });
+                      return row;
+                    })}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
+                    <YAxis />
+                    <Tooltip />
+                    {tagEvolution.series.map((s, i) => (
+                      <Line
+                        key={s.tag}
+                        type="monotone"
+                        dataKey={s.tag}
+                        stroke={["#8884d8", "#82ca9d", "#ff7f50", "#ffc658", "#a4de6c", "#d0ed57", "#d62728", "#9467bd"][i % 8]}
+                        connectNulls={false}
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
             </>
           )}
 <br></br>
@@ -914,6 +1126,40 @@ function App() {
       {/* Data 탭 */}
       {activeTab === "data" && (
         <>
+          <h2 style={{ marginTop: "2rem" }}>AI 분석용 프롬프트 생성</h2>
+          <p style={{ color: "#888", fontSize: "0.9rem" }}>
+            지금 선택된 기간({dateRange.label}) 기준으로 청취 데이터를 정리한 프롬프트를 만들어요. 복사해서
+            ChatGPT나 Claude 같은 AI에게 붙여넣고 취향 분석을 물어보면 됩니다.
+          </p>
+          <button
+            onClick={handleGeneratePrompt}
+            disabled={generatingPrompt}
+            style={{ padding: "0.5rem 1rem", marginBottom: "1rem" }}
+          >
+            {generatingPrompt ? "생성 중..." : "📋 프롬프트 생성"}
+          </button>
+
+          {aiPrompt && (
+            <div>
+              <textarea
+                readOnly
+                value={aiPrompt}
+                style={{
+                  width: "100%",
+                  height: 400,
+                  padding: "0.75rem",
+                  fontFamily: "monospace",
+                  fontSize: "0.8rem",
+                  whiteSpace: "pre-wrap",
+                  boxSizing: "border-box",
+                }}
+              />
+              <button onClick={handleCopyPrompt} style={{ padding: "0.5rem 1rem", marginTop: "0.5rem" }}>
+                {copied ? "복사됨!" : "📋 클립보드에 복사"}
+              </button>
+            </div>
+          )}
+
           <h2>데이터 상태</h2>
 
           <div style={{ marginBottom: "1.5rem" }}>

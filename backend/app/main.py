@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
+from app.analysis.ai_prompt import build_ai_prompt
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.lastfm.client import invalidate_aliased_cache
 from app.analysis.validation import validate_csv
@@ -343,3 +344,12 @@ def listening_daily(start: str | None = None, end: str | None = None):
             for date, count in daily_counts.items()
         ]
     }
+
+@app.get("/api/ai-prompt")
+def ai_prompt(start: str | None = None, end: str | None = None):
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+
+    prompt_text = build_ai_prompt(df)
+    return {"prompt": prompt_text}

@@ -98,7 +98,7 @@ def compute_tag_evolution(df: pd.DataFrame, top_n_tags: int = 6) -> dict:
     캐시에 있는 아티스트만 집계 대상 (아직 태그 조회 안 된 아티스트는 제외).
     """
     df = df.copy()
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["year_month"] = df["datetime_kst"].dt.strftime("%Y-%m")
 
@@ -151,7 +151,7 @@ def compute_tag_evolution_dynamic(df: pd.DataFrame, top_n_tags: int = 6) -> dict
     특정 달에 해당 태그가 없으면 None으로 표시해 선이 끊기게 한다.
     """
     df = df.copy()
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["year_month"] = df["datetime_kst"].dt.strftime("%Y-%m")
 

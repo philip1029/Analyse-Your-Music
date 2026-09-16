@@ -7,7 +7,7 @@ def compute_discovery(df: pd.DataFrame) -> dict:
     월별 신규 발견 개수를 계산한다.
     """
     df = df.copy()
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["year_month"] = df["datetime_kst"].dt.strftime("%Y-%m")
 
@@ -37,7 +37,7 @@ def get_discovery_timeline(df: pd.DataFrame, category: str = "track", limit: int
     column = column_map.get(category, "track")
 
     df = df.copy()
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
 
     df_sorted = df.sort_values("datetime_kst")

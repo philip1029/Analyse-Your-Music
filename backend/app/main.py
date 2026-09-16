@@ -87,7 +87,7 @@ def listening_hourly(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
 
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["hour"] = df["datetime_kst"].dt.hour
 
@@ -105,7 +105,7 @@ def listening_weekday(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
 
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["weekday"] = df["datetime_kst"].dt.dayofweek
 
@@ -124,7 +124,7 @@ def listening_monthly(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
 
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["year_month"] = df["datetime_kst"].dt.strftime("%Y-%m")
 
@@ -142,7 +142,7 @@ def listening_yearly(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
 
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["year"] = df["datetime_kst"].dt.year
 
@@ -331,7 +331,7 @@ def listening_daily(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
 
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["date"] = df["datetime_kst"].dt.strftime("%Y-%m-%d")
 

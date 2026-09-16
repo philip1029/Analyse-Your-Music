@@ -10,7 +10,7 @@ def filter_by_date_range(df: pd.DataFrame, start: str | None, end: str | None) -
         return df
 
     df = df.copy()
-    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True)
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
 
     if start:

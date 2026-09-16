@@ -360,6 +360,42 @@ def listening_daily(start: str | None = None, end: str | None = None):
         ]
     }
 
+
+@app.get("/api/listening/day")
+def listening_day(date: str, start: str | None = None, end: str | None = None):
+    """히트맵에서 특정 날짜를 클릭했을 때, 그날의 청취 기록 전체를 시간순으로 반환한다."""
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+
+    df["datetime_utc"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed")
+    df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
+    df["date"] = df["datetime_kst"].dt.strftime("%Y-%m-%d")
+
+    day_df = df[df["date"] == date].sort_values("datetime_kst")
+
+    tracks = [
+        {
+            "time": row["datetime_kst"].strftime("%H:%M"),
+            "artist": row["artist"],
+            "track": row["track"],
+            "album": row["album"],
+        }
+        for _, row in day_df.iterrows()
+    ]
+
+    artist_counts = day_df["artist"].value_counts()
+
+    return {
+        "date": date,
+        "total_plays": len(day_df),
+        "unique_artists": int(day_df["artist"].nunique()) if len(day_df) else 0,
+        "unique_tracks": int(day_df["track"].nunique()) if len(day_df) else 0,
+        "top_artists": [{"name": name, "count": int(count)} for name, count in artist_counts.head(5).items()],
+        "tracks": tracks,
+    }
+
+
 @app.get("/api/ai-prompt")
 def ai_prompt(start: str | None = None, end: str | None = None):
     df = get_filtered_df(start, end)

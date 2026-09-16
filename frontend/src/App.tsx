@@ -21,6 +21,17 @@ import {
 
 type DailyPoint = { date: string; count: number };
 
+type DayTrack = { time: string; artist: string; track: string; album: string };
+
+type DayDetail = {
+  date: string;
+  total_plays: number;
+  unique_artists: number;
+  unique_tracks: number;
+  top_artists: { name: string; count: number }[];
+  tracks: DayTrack[];
+};
+
 type DiscoverySummary = {
   track: { total_new: number; months: string[]; counts: number[] };
   artist: { total_new: number; months: string[]; counts: number[] };
@@ -136,7 +147,15 @@ function yearRange(year: number): DateRange {
 
 const BASE_URL = "http://localhost:8000";
 
-function YearHeatmap({ year, data }: { year: string; data: DailyPoint[] }) {
+function YearHeatmap({
+  year,
+  data,
+  onDayClick,
+}: {
+  year: string;
+  data: DailyPoint[];
+  onDayClick: (date: string) => void;
+}) {
   const countMap = new Map(data.map((d) => [d.date, d.count]));
   const maxCount = Math.max(...data.map((d) => d.count), 1);
 
@@ -207,6 +226,8 @@ function YearHeatmap({ year, data }: { year: string; data: DailyPoint[] }) {
                   height={cellSize}
                   rx={2}
                   fill={inYear ? getColor(day.count) : "transparent"}
+                  style={{ cursor: inYear ? "pointer" : "default" }}
+                  onClick={() => inYear && onDayClick(day.date)}
                 >
                   {inYear && (
                     <title>
@@ -364,7 +385,13 @@ function ListeningClock({ data }: { data: ChartPoint[] }) {
   );
 }
 
-function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
+function ContributionHeatmap({
+  data,
+  onDayClick,
+}: {
+  data: DailyPoint[];
+  onDayClick: (date: string) => void;
+}) {
   if (data.length === 0) return null;
 
   const years = Array.from(new Set(data.map((d) => d.date.slice(0, 4)))).sort();
@@ -372,7 +399,7 @@ function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
   return (
     <div>
       {years.map((year) => (
-        <YearHeatmap key={year} year={year} data={data} />
+        <YearHeatmap key={year} year={year} data={data} onDayClick={onDayClick} />
       ))}
     </div>
   );
@@ -415,6 +442,99 @@ function SortedTagTooltip({
   );
 }
 
+function DayDetailModal({
+  detail,
+  loading,
+  onClose,
+}: {
+  detail: DayDetail | null;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 100,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "white",
+          borderRadius: 8,
+          padding: "1.5rem",
+          width: "min(600px, 90vw)",
+          maxHeight: "80vh",
+          overflowY: "auto",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "1rem",
+          }}
+        >
+          <h3 style={{ margin: 0 }}>{detail?.date ?? "불러오는 중..."}</h3>
+          <button onClick={onClose} style={{ padding: "0.3rem 0.6rem" }}>
+            닫기
+          </button>
+        </div>
+
+        {loading && <p>불러오는 중...</p>}
+
+        {!loading && detail && detail.total_plays === 0 && <p>이날은 청취 기록이 없어요.</p>}
+
+        {!loading && detail && detail.total_plays > 0 && (
+          <>
+            <p style={{ color: "#888", marginTop: 0 }}>
+              총 {detail.total_plays}회 재생 · 아티스트 {detail.unique_artists}명 · 트랙{" "}
+              {detail.unique_tracks}개
+            </p>
+
+            <h4 style={{ marginBottom: "0.4rem" }}>많이 들은 아티스트</h4>
+            <ul style={{ marginTop: 0 }}>
+              {detail.top_artists.map((a) => (
+                <li key={a.name}>
+                  {a.name} — {a.count}회
+                </li>
+              ))}
+            </ul>
+
+            <h4 style={{ marginBottom: "0.4rem" }}>전체 재생 목록 (시간순)</h4>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+              <thead>
+                <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                  <th style={{ padding: "0.3rem" }}>시각</th>
+                  <th style={{ padding: "0.3rem" }}>아티스트</th>
+                  <th style={{ padding: "0.3rem" }}>트랙</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detail.tracks.map((t, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                    <td style={{ padding: "0.3rem", color: "#888", whiteSpace: "nowrap" }}>{t.time}</td>
+                    <td style={{ padding: "0.3rem" }}>{t.artist}</td>
+                    <td style={{ padding: "0.3rem" }}>{t.track}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [aiPrompt, setAiPrompt] = useState<string | null>(null);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
@@ -437,6 +557,9 @@ const handleCopyPrompt = () => {
 };
 
   const [dailyData, setDailyData] = useState<DailyPoint[]>([]);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [dayDetail, setDayDetail] = useState<DayDetail | null>(null);
+  const [loadingDayDetail, setLoadingDayDetail] = useState(false);
 
   const [discoverySummary, setDiscoverySummary] = useState<DiscoverySummary | null>(null);
   const [discoveryTimeline, setDiscoveryTimeline] = useState<DiscoveryItem[]>([]);
@@ -681,6 +804,18 @@ const handleCopyPrompt = () => {
       .finally(() => setCachingTags(false));
   };
 
+  const handleDayClick = (date: string) => {
+    setSelectedDay(date);
+    setDayDetail(null);
+    setLoadingDayDetail(true);
+
+    fetch(`${BASE_URL}/api/listening/day${buildQuery({ date })}`)
+      .then((res) => res.json())
+      .then((data: DayDetail) => setDayDetail(data))
+      .catch((err) => setError(err.message))
+      .finally(() => setLoadingDayDetail(false));
+  };
+
   if (error) return <div>에러 발생: {error}</div>;
   if (!stats) return <div>불러오는 중...</div>;
 
@@ -898,7 +1033,7 @@ const handleCopyPrompt = () => {
             </>
           )}
           <h2>청취 활동 히트맵</h2>
-          <ContributionHeatmap data={dailyData} />
+          <ContributionHeatmap data={dailyData} onDayClick={handleDayClick} />
         </>
       )}
 
@@ -1272,6 +1407,14 @@ const handleCopyPrompt = () => {
             </>
           )}
         </>
+      )}
+
+      {selectedDay && (
+        <DayDetailModal
+          detail={dayDetail}
+          loading={loadingDayDetail}
+          onClose={() => setSelectedDay(null)}
+        />
       )}
     </div>
   );

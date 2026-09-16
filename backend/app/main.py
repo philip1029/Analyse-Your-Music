@@ -13,6 +13,7 @@ from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
 from app.analysis.taste import (
     get_artist_tags_page,
+    fetch_next_artist_tags,
     compute_tag_distribution,
     compute_tag_evolution,
     compute_tag_evolution_dynamic,
@@ -206,6 +207,28 @@ def taste_artists(
         return {"error": "data 폴더에 csv 파일이 없습니다."}
 
     result = get_artist_tags_page(df, api_key, page=page, page_size=page_size)
+    return result
+
+
+@app.post("/api/taste/cache-fetch")
+def taste_cache_fetch(
+    count: int = 20,
+    start: str | None = None,
+    end: str | None = None,
+):
+    """
+    아티스트별 태그 표를 보지 않고도, 재생 횟수 순으로 아직 캐시가 없는 아티스트의
+    태그를 count명만큼 미리 가져와 캐시에 채워 넣는다.
+    """
+    api_key = os.environ.get("LASTFM_API_KEY")
+    if not api_key:
+        return {"error": "LASTFM_API_KEY가 설정되지 않았습니다."}
+
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+
+    result = fetch_next_artist_tags(df, api_key, count=count)
     return result
 
 

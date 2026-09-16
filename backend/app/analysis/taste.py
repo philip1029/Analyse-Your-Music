@@ -76,6 +76,37 @@ def load_artist_tags(artist_name: str, tag_cache: dict[str, list]) -> list:
     return tag_cache[artist_name]
 
 
+def fetch_next_artist_tags(df: pd.DataFrame, api_key: str, count: int = 20) -> dict:
+    """
+    재생 횟수 순으로 정렬된 아티스트 중, 아직 태그 캐시가 없는 아티스트를 순서대로
+    최대 count명만큼 조회해서 캐시에 저장한다. ('아티스트별 태그' 더보기와 별개로,
+    캐시만 미리 채워두고 싶을 때 쓰는 용도)
+    """
+    artist_counts = df["artist"].value_counts()
+    total_artists = len(artist_counts)
+
+    def is_cached(artist_name: str) -> bool:
+        resolved_name = resolve_artist_name(artist_name)
+        return (CACHE_DIR / f"{_slugify(resolved_name)}.json").exists()
+
+    covered_before = sum(1 for name in artist_counts.index if is_cached(name))
+
+    fetched = 0
+    for artist_name in artist_counts.index:
+        if fetched >= count:
+            break
+        if is_cached(artist_name):
+            continue
+        get_artist_top_tags(artist_name, api_key)
+        fetched += 1
+
+    return {
+        "fetched": fetched,
+        "covered_artists": covered_before + fetched,
+        "total_artists": total_artists,
+    }
+
+
 def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
     """
     캐시에 이미 저장된 아티스트들의 태그를 모아서,

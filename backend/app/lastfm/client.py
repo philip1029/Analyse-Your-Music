@@ -12,9 +12,20 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 def _slugify(artist_name: str) -> str:
     """아티스트명을 파일명으로 쓸 수 있게 변환한다."""
+    import hashlib
     slug = artist_name.lower().strip()
     slug = re.sub(r"[^a-z0-9가-힣]+", "_", slug)
-    return slug.strip("_") or "unknown"
+    slug = slug.strip("_") or "unknown"
+
+    # app/analysis/taste.py의 _slugify와 동일한 규칙: 공동 크레딧 등으로 이름이 아주
+    # 길면 파일명이 파일시스템 한도를 넘으므로 잘라내고 해시를 붙인다. 두 곳의 규칙이
+    # 어긋나면 캐시 쓰기/읽기 경로가 서로 다른 파일을 보게 되므로 반드시 동일하게 유지할 것.
+    if len(slug.encode("utf-8")) > 100:
+        digest = hashlib.sha1(artist_name.encode("utf-8")).hexdigest()[:10]
+        truncated = slug.encode("utf-8")[:80].decode("utf-8", errors="ignore").strip("_")
+        slug = f"{truncated}_{digest}"
+
+    return slug
 
 ALIAS_FILE = Path(__file__).resolve().parent.parent.parent.parent / "config" / "artist_aliases.txt"
 

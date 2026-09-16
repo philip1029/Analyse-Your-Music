@@ -7,7 +7,6 @@ from app.analysis.trends import (
     compute_artist_delta_ranking,
     compute_tag_delta_ranking,
     compute_artist_churn,
-    compute_binge_sessions,
     compute_recent_concentration,
 )
 
@@ -64,7 +63,6 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
     artist_delta = compute_artist_delta_ranking(df, recent_weeks=4, top_n=10)
     tag_delta = compute_tag_delta_ranking(df, recent_weeks=4, top_n=10)
     churn = compute_artist_churn(df, recent_weeks=4, top_n=10)
-    binge = compute_binge_sessions(df, gap_minutes=10, min_session_length=3)
     recent_focus = compute_recent_concentration(df, days=30, top_n=10)
 
     weekday_counts = df["datetime_kst"].dt.dayofweek.value_counts().sort_index()
@@ -268,38 +266,13 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
     )
     lines.append("")
 
-    # 8. 청취 강도 & 몰입 패턴
-    lines.append(
-        f"## 8. 청취 강도 & 몰입 패턴 (같은 아티스트를 {binge['gap_minutes']}분 이내 간격으로 "
-        f"{binge['min_session_length']}곡 이상 연속 재생 = '몰아듣기 세션')"
-    )
-    lines.append(f"- 전체 몰아듣기 세션 수: {binge['total_sessions']}회")
-    lines.append(f"추이: {_sparkline(binge['monthly_session_counts'])}  (왼쪽={binge['periods'][0] if binge['periods'] else '-'} → 오른쪽={binge['periods'][-1] if binge['periods'] else '-'})")
-    lines.append("")
-    lines.append("### 월별 몰아듣기 세션 빈도")
-    lines.append(
-        _table(
-            ["월", "세션 수"],
-            [[p, c] for p, c in zip(binge["periods"], binge["monthly_session_counts"])],
-        )
-    )
-    lines.append("")
-    lines.append("### 가장 길었던 몰아듣기 세션 Top 5 (참고용)")
-    lines.append(
-        _table(
-            ["아티스트", "연속 재생 곡 수", "시작", "종료"],
-            [[s["artist"], s["track_count"], s["start"], s["end"]] for s in binge["longest_sessions"][:5]],
-        )
-    )
-    lines.append("")
-
-    # 9. 신곡 vs 구곡 비율 (미포함 안내)
-    lines.append("## 9. 신곡 vs 구곡 비율")
+    # 8. 신곡 vs 구곡 비율 (미포함 안내)
+    lines.append("## 8. 신곡 vs 구곡 비율")
     lines.append("※ 트랙 발매연도 데이터를 보유하고 있지 않아 이 항목은 계산에서 제외했습니다.")
     lines.append("")
 
     # 10. 최근 트렌드
-    lines.append("## 10. 최근 트렌드")
+    lines.append("## 9. 최근 트렌드")
     if discovery_timeline:
         lines.append("### 최근에 새로 발견한 트랙 Top 10 (최신순)")
         rows = []
@@ -336,8 +309,7 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
     lines.append("1. 제 음악 취향을 한두 문단으로 요약해 주세요.")
     lines.append("2. 언어/지역권 트렌드와 급상승/급하락 랭킹을 보고, 최근 취향이 어느 방향으로 이동하고 있는지 짚어주세요.")
     lines.append("3. 이탈/재발견 아티스트 목록을 보고, 제 취향에 주기성이나 회귀 패턴이 있는지 분석해 주세요.")
-    lines.append("4. 몰아듣기 세션 빈도 추이를 보고, 최근 청취 몰입도가 늘고 있는지 줄고 있는지 판단해 주세요.")
-    lines.append("5. 최근 발견한 트랙과 최근 집중도 데이터를 참고해서, 제 취향과 결이 비슷하면서 아직 안 들어봤을 법한 아티스트를 3~5명 추천해 주세요.")
-    lines.append("6. 제 음악 소비 방식(다양성, 집중도, 반복 재생 등)에 대한 솔직한 피드백이 있다면 말해주세요.")
+    lines.append("4. 최근 발견한 트랙과 최근 집중도 데이터를 참고해서, 제 취향과 결이 비슷하면서 아직 안 들어봤을 법한 아티스트를 3~5명 추천해 주세요.")
+    lines.append("5. 제 음악 소비 방식(다양성, 집중도, 반복 재생 등)에 대한 솔직한 피드백이 있다면 말해주세요.")
 
     return "\n".join(lines)

@@ -228,53 +228,6 @@ def compute_artist_churn(
     }
 
 
-def compute_binge_sessions(df: pd.DataFrame, gap_minutes: int = 10, min_session_length: int = 3) -> dict:
-    """
-    같은 아티스트를 gap_minutes 이내 간격으로 연속 재생한 구간을 '몰아듣기 세션'으로 탐지하고,
-    월별 세션 빈도 추이를 계산한다.
-    """
-    df = _with_kst(df).sort_values("datetime_kst").reset_index(drop=True)
-
-    prev_artist = df["artist"].shift(1)
-    gap_min = (df["datetime_kst"] - df["datetime_kst"].shift(1)).dt.total_seconds() / 60
-    same_session = (df["artist"] == prev_artist) & (gap_min <= gap_minutes)
-    session_id = (~same_session).cumsum()
-
-    sizes = df.groupby(session_id).size()
-    session_ids = sizes[sizes >= min_session_length].index
-
-    sessions = []
-    for sid in session_ids:
-        group = df[session_id == sid]
-        sessions.append(
-            {
-                "artist": group["artist"].iloc[0],
-                "track_count": len(group),
-                "start": group["datetime_kst"].iloc[0].strftime("%Y-%m-%d %H:%M"),
-                "end": group["datetime_kst"].iloc[-1].strftime("%Y-%m-%d %H:%M"),
-                "year_month": group["datetime_kst"].iloc[0].strftime("%Y-%m"),
-            }
-        )
-
-    monthly_session_counts: dict[str, int] = {}
-    for s in sessions:
-        monthly_session_counts[s["year_month"]] = monthly_session_counts.get(s["year_month"], 0) + 1
-
-    periods = sorted(df["datetime_kst"].dt.strftime("%Y-%m").unique())
-    monthly_trend = [monthly_session_counts.get(p, 0) for p in periods]
-
-    longest_sessions = sorted(sessions, key=lambda s: s["track_count"], reverse=True)[:10]
-
-    return {
-        "gap_minutes": gap_minutes,
-        "min_session_length": min_session_length,
-        "total_sessions": len(sessions),
-        "periods": periods,
-        "monthly_session_counts": monthly_trend,
-        "longest_sessions": longest_sessions,
-    }
-
-
 def compute_recent_concentration(df: pd.DataFrame, days: int = 30, top_n: int = 10) -> dict:
     """최근 N일 재생 중, 그 기간 내 비중이 가장 큰 아티스트/장르 (절대 순위가 아닌 최근 집중도 기준)."""
     df = _with_kst(df)

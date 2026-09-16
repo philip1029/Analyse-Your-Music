@@ -477,6 +477,9 @@ const handleCopyPrompt = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
 
+  const [cachingTags, setCachingTags] = useState(false);
+  const [cacheMessage, setCacheMessage] = useState<string | null>(null);
+
   const buildQuery = useCallback(
     (extra: Record<string, string | number> = {}) => {
       const params = new URLSearchParams();
@@ -660,6 +663,24 @@ const handleCopyPrompt = () => {
       });
   };
 
+  const handleFetchTagCache = () => {
+    setCachingTags(true);
+    setCacheMessage(null);
+
+    fetch(`${BASE_URL}/api/taste/cache-fetch${buildQuery({ count: 20 })}`, { method: "POST" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.error) {
+          setCacheMessage(`에러: ${data.error}`);
+        } else {
+          setCacheMessage(`${data.fetched}명 새로 조회 완료 (${data.covered_artists} / ${data.total_artists})`);
+          loadAllData();
+        }
+      })
+      .catch((err) => setCacheMessage(`에러: ${err.message}`))
+      .finally(() => setCachingTags(false));
+  };
+
   if (error) return <div>에러 발생: {error}</div>;
   if (!stats) return <div>불러오는 중...</div>;
 
@@ -780,7 +801,17 @@ const handleCopyPrompt = () => {
             </div>
           )}
         </div>
+
+        <button onClick={handleFetchTagCache} disabled={cachingTags} style={{ padding: "0.5rem 1rem" }}>
+          {cachingTags
+            ? "태그 조회 중..."
+            : `🏷️ 아티스트 태그 캐시 20명 더 불러오기${
+                tagDistribution ? ` (${tagDistribution.covered_artists} / ${tagDistribution.total_artists})` : ""
+              }`}
+        </button>
       </div>
+
+      {cacheMessage && <p>{cacheMessage}</p>}
 
       {/* 탭 바 */}
       <div style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid #ddd", marginBottom: "1.5rem" }}>

@@ -378,6 +378,43 @@ function ContributionHeatmap({ data }: { data: DailyPoint[] }) {
   );
 }
 
+function SortedTagTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { dataKey: string; value: number | null; color: string }[];
+  label?: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+
+  const sorted = payload
+    .filter((entry) => entry.value !== null && entry.value !== undefined)
+    .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
+
+  if (sorted.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        background: "white",
+        border: "1px solid #ccc",
+        borderRadius: 6,
+        padding: "0.5rem 0.75rem",
+        fontSize: "0.85rem",
+      }}
+    >
+      <div style={{ fontWeight: "bold", marginBottom: 4 }}>{label}</div>
+      {sorted.map((entry) => (
+        <div key={entry.dataKey} style={{ color: entry.color }}>
+          {entry.dataKey}: {entry.value}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function App() {
   const [aiPrompt, setAiPrompt] = useState<string | null>(null);
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
@@ -1036,7 +1073,7 @@ const handleCopyPrompt = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
                     <YAxis />
-                    <Tooltip />
+                    <Tooltip content={<SortedTagTooltip />} />
                     {tagEvolution.series.map((s, i) => {
                       const color = ["#8884d8", "#82ca9d", "#ff7f50", "#ffc658", "#a4de6c", "#d0ed57", "#d62728", "#9467bd"][
                         i % 8
@@ -1069,7 +1106,7 @@ const handleCopyPrompt = () => {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
                     <YAxis />
-                    <Tooltip />
+                    <Tooltip content={<SortedTagTooltip />} />
                     {tagEvolution.series.map((s, i) => (
                       <Line
                         key={s.tag}

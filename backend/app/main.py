@@ -46,6 +46,7 @@ def get_filtered_df(start: str | None, end: str | None) -> pd.DataFrame | None:
     if not csv_files:
         return None
     df = load_csv_safely(csv_files[0])
+    df = df.drop_duplicates(subset=["uts", "artist", "track"], keep="first")
     df = filter_by_date_range(df, start, end)
     return df
 

@@ -446,9 +446,9 @@ def ai_prompt(start: str | None = None, end: str | None = None):
 
 @app.get("/api/ai-prompt/periods")
 def ai_prompt_periods(period: str = "month"):
-    """월간/주간 프롬프트에서 고를 수 있는 기간 목록 (최신순)."""
-    if period not in ("month", "week"):
-        return {"error": "period 는 month 또는 week 여야 합니다."}
+    """월간/주간/연간 프롬프트에서 고를 수 있는 기간 목록 (최신순)."""
+    if period not in ("month", "week", "year"):
+        return {"error": "period 는 month, week, year 중 하나여야 합니다."}
     df = get_filtered_df(None, None)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
@@ -457,7 +457,7 @@ def ai_prompt_periods(period: str = "month"):
 
 @app.get("/api/ai-prompt/period")
 def ai_prompt_period(period: str = "month", anchor: str | None = None):
-    """한 달(YYYY-MM) 또는 한 주(그 주의 아무 날짜 YYYY-MM-DD) 기준 분석 프롬프트.
+    """한 달(YYYY-MM) / 한 주(그 주의 아무 날짜 YYYY-MM-DD) / 한 해(YYYY) 기준 분석 프롬프트.
     anchor 를 생략하면 기록이 있는 가장 최근 기간. 날짜 필터는 적용하지 않는다."""
     df = get_filtered_df(None, None)
     if df is None:

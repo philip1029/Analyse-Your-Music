@@ -541,7 +541,7 @@ function App() {
   const [copied, setCopied] = useState(false);
 
   // 전체 기간(선택한 날짜 범위) / 월간 / 주간 프롬프트
-  const [promptKind, setPromptKind] = useState<"all" | "month" | "week">("all");
+  const [promptKind, setPromptKind] = useState<"all" | "month" | "week" | "year">("all");
   const [periodOptions, setPeriodOptions] = useState<
     { key: string; label: string; scrobbles: number; partial: boolean }[]
   >([]);
@@ -1394,12 +1394,12 @@ const handleCopyPrompt = () => {
             {promptKind === "all"
               ? `지금 선택된 기간(${dateRange.label}) 기준으로 청취 데이터를 정리한 프롬프트를 만들어요.`
               : `${
-                  promptKind === "month" ? "고른 달을 직전 달과" : "고른 주를 직전 주와"
+                  { month: "고른 달을 직전 달과", week: "고른 주를 직전 주와", year: "고른 해를 전년과" }[promptKind]
                 } 비교한 프롬프트를 만들어요. (위쪽 날짜 범위와 상관없이 전체 기록에서 계산됩니다)`}{" "}
             복사해서 ChatGPT나 Claude 같은 AI에게 붙여넣고 취향 분석을 물어보면 됩니다.
           </p>
           <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
-            {([["all", "전체 기간"], ["month", "월간"], ["week", "주간"]] as const).map(([kind, label]) => (
+            {([["all", "전체 기간"], ["year", "연간"], ["month", "월간"], ["week", "주간"]] as const).map(([kind, label]) => (
               <label key={kind} style={{ cursor: "pointer" }}>
                 <input
                   type="radio"

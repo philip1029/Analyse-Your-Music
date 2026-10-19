@@ -36,22 +36,30 @@ def list_periods(df: pd.DataFrame, period: str) -> list[dict]:
     dt = pd.to_datetime(df["utc_time"], utc=True, format="mixed").dt.tz_convert(KST)
     if period == "month":
         keys = dt.dt.strftime("%Y-%m")
+    elif period == "year":
+        keys = dt.dt.strftime("%Y")
     else:
         keys = (dt.dt.normalize() - pd.to_timedelta(dt.dt.dayofweek, unit="D")).dt.strftime("%Y-%m-%d")
     counts = keys.value_counts().sort_index(ascending=False)
     data_edge = dt.max().normalize() + pd.Timedelta(days=1)       # 기록이 닿은 마지막 날의 끝
+    data_start = dt.min().normalize()                              # 기록이 시작된 날의 처음
     out = []
     for key, n in counts.items():
         if period == "week":
             start = pd.Timestamp(key, tz=KST)
             end = start + pd.Timedelta(days=7)
             label = f"{key} ~ {(start + pd.Timedelta(days=6)):%m-%d}"
+        elif period == "year":
+            start = pd.Timestamp(f"{key}-01-01", tz=KST)
+            end = start + pd.DateOffset(years=1)
+            label = f"{key}년"
         else:
             start = pd.Timestamp(key + "-01", tz=KST)
             end = start + pd.DateOffset(months=1)
             label = key
-        # partial: 기록이 이 기간의 끝까지 닿지 않음(진행 중이거나 데이터가 끊김)
-        out.append({"key": key, "label": label, "scrobbles": int(n), "partial": bool(end > data_edge)})
+        # partial: 기록이 이 기간 전체를 덮지 못함(진행 중이거나 데이터 시작/끊김)
+        partial = end > data_edge or start < data_start
+        out.append({"key": key, "label": label, "scrobbles": int(n), "partial": bool(partial)})
     return out
 
 
@@ -61,6 +69,11 @@ def _bounds(period: str, anchor: str | None, data_last: pd.Timestamp):
         end = start + pd.DateOffset(months=1)
         prev_start = start - pd.DateOffset(months=1)
         label = f"{start.year}년 {start.month}월"
+    elif period == "year":
+        start = pd.Timestamp(f"{anchor}-01-01", tz=KST) if anchor else data_last.normalize().replace(month=1, day=1)
+        end = start + pd.DateOffset(years=1)
+        prev_start = start - pd.DateOffset(years=1)
+        label = f"{start.year}년"
     else:
         day = pd.Timestamp(anchor, tz=KST) if anchor else data_last
         start = day.normalize() - pd.Timedelta(days=day.weekday())
@@ -84,16 +97,17 @@ def _named_counts(df: pd.DataFrame, col: str) -> pd.Series:
     return df[df[col] != ""][col].value_counts()
 
 
-def _top_compare(cur: pd.DataFrame, prev: pd.DataFrame, before: pd.DataFrame, col: str, n: int = 10) -> list[list]:
+def _top_compare(cur: pd.DataFrame, prev: pd.DataFrame, before: pd.DataFrame, col: str, n: int = 10,
+                 prev_word: str = "직전") -> list[list]:
     c, p = _named_counts(cur, col), _named_counts(prev, col)
     prev_rank = {name: i for i, name in enumerate(p.index, 1)}
     seen_before = set(before[col])
     rows = []
     for i, (name, cnt) in enumerate(c.head(n).items(), 1):
         if name in prev_rank:
-            status = f"직전 {prev_rank[name]}위"
+            status = f"{prev_word} {prev_rank[name]}위"
         elif name in seen_before:
-            status = "복귀(직전 기간엔 없음)"
+            status = f"복귀({prev_word} 기간엔 없음)" if prev_word == "직전" else f"복귀({prev_word}엔 없음)"
         else:
             status = "신규(처음 청취)"
         rows.append([i, name, int(cnt), int(p.get(name, 0)) or "-", status])
@@ -149,8 +163,8 @@ def _fmt_delta(cur_v: float, prev_v: float | None, suffix: str = "") -> str:
 
 
 def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = None) -> dict:
-    if period not in ("month", "week"):
-        raise ValueError("period 는 month 또는 week 여야 합니다.")
+    if period not in ("month", "week", "year"):
+        raise ValueError("period 는 month, week, year 중 하나여야 합니다.")
     df = _prep(df_all)
     if df.empty:
         raise ValueError("청취 기록이 없습니다.")
@@ -165,9 +179,12 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     if cur.empty:
         raise ValueError(f"{label}에는 청취 기록이 없습니다.")
 
-    unit = "달" if period == "month" else "주"
-    unit_cap = "이번 달" if period == "month" else "이번 주"
-    prev_label = f"직전 {unit}"
+    if period == "month":
+        unit, unit_cap, prev_label = "달", "이번 달", "직전 달"
+    elif period == "week":
+        unit, unit_cap, prev_label = "주", "이번 주", "직전 주"
+    else:  # year: '올해' 대신 실제 연도를 써서, 과거 연도를 고를 때도 헷갈리지 않게 한다
+        unit, unit_cap, prev_label = "해", f"{start.year}년", f"전년({prev_start.year}년)"
     total_days = (end - start).days
     covered_days = max(1, (min(end, data_last.normalize() + pd.Timedelta(days=1)) - max(start, data_first.normalize())).days)
     partial = covered_days < total_days
@@ -175,8 +192,8 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     prev_covered = max(1, (min(start, data_last.normalize() + pd.Timedelta(days=1)) - max(prev_start, data_first.normalize())).days)
 
     lines: list[str] = []
-    title = "월간" if period == "month" else "주간"
-    particle = "와" if period == "week" else "과"       # 직전 주'와' / 직전 달'과'
+    title = {"month": "월간", "week": "주간", "year": "연간"}[period]
+    particle = "와" if period == "week" else "과"       # 직전 주'와' / 직전 달'과' / 전년(2025년)'과'
     week_note = " 주간은 월요일~일요일 기준입니다." if period == "week" else ""
     lines.append(
         f"당신은 음악 청취 데이터를 분석하는 전문가입니다. 아래는 제 {title} 청취 기록({label})을 "
@@ -199,7 +216,7 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
         ["일평균 스크로블", f"{len(cur) / covered_days:.1f}", f"{len(prev) / prev_covered:.1f}" if len(prev) else "-",
          _fmt_delta(round(len(cur) / covered_days, 1), round(len(prev) / prev_covered, 1)) if len(prev) else "-"],
         ["청취한 날 수", f"{active_days}/{covered_days}", f"{prev_active}/{prev_covered}" if len(prev) else "-",
-         _fmt_delta(active_days, prev_active) if len(prev) and not partial else "-"],
+         _fmt_delta(active_days, prev_active) if len(prev) and not partial and prev_covered >= prev_total_days else "-"],
         ["고유 아티스트", named_art(cur), named_art(prev) if len(prev) else "-", _fmt_delta(named_art(cur), named_art(prev)) if len(prev) else "-"],
         ["고유 트랙", cur["track_key"].nunique(), prev["track_key"].nunique() if len(prev) else "-", _fmt_delta(cur["track_key"].nunique(), prev["track_key"].nunique()) if len(prev) else "-"],
         ["고유 앨범", _named_counts(cur, "album_key").size, _named_counts(prev, "album_key").size if len(prev) else "-",
@@ -212,8 +229,10 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     if empty_artist:
         note += f" · 아티스트가 비어 있는 {empty_artist}행은 아티스트 통계에서 제외됨"
     lines.append(note)
-    if period == "month" and (start - data_first).days < 90:
-        lines.append("- 데이터가 시작된 직후라, '신규(처음 청취)' 표시는 실제로는 데이터 시작 전에 들었던 곡일 수 있습니다.")
+    if len(prev) and prev_covered < prev_total_days:
+        lines.append(f"- 비교 대상({prev_label})은 {prev_covered}/{prev_total_days}일만 기록돼 있어, 총량 증감보다 '일평균'으로 비교해 주세요.")
+    if (period == "month" and (start - data_first).days < 90) or (period == "year" and prev_covered < prev_total_days):
+        lines.append("- 비교 대상 기간의 기록이 일부뿐(데이터 시작 직후)이라, '신규(처음 청취)' 표시는 실제로는 데이터 시작 전에 들었던 곡일 수 있습니다.")
     lines.append("")
 
     # 2. 흐름
@@ -232,6 +251,49 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
         lines.append("")
         lines.append("### 최근 8주 청취량 추이 (오른쪽=이번 주)")
         lines.append(f"추이: {_sparkline(trend_vals)}  값: {trend_vals}")
+    elif period == "year":
+        first_seen = df[df["artist"] != ""].groupby("artist")["datetime_kst"].min()
+        month_rows, month_vals = [], []
+        for m in range(12):
+            m0 = start + pd.DateOffset(months=m)
+            m1 = m0 + pd.DateOffset(months=1)
+            if m1 <= data_first or m0 > data_last:
+                month_rows.append([f"{m0:%Y-%m}", "-", "-", "-", "기록 없음"])
+                month_vals.append(0)
+                continue
+            part = _slice(cur, m0, m1)
+            top = _named_counts(part, "artist")
+            new_n = int(((first_seen >= m0) & (first_seen < m1)).sum())
+            days_n = part["datetime_kst"].dt.strftime("%Y-%m-%d").nunique()
+            month_rows.append([f"{m0:%Y-%m}", len(part), days_n, new_n, f"{top.index[0]} ({int(top.iloc[0])})" if len(top) else "-"])
+            month_vals.append(len(part))
+        lines.append("### 월별 (1월 → 12월)")
+        lines.append(_table(["월", "재생 횟수", "청취한 날 수", "처음 들은 아티스트 수", "가장 많이 들은 아티스트"], month_rows))
+        lines.append(f"추이: {_sparkline(month_vals)}  값: {month_vals}  (첫 달/마지막 달은 일부 기간일 수 있음)")
+        years = sorted(df["datetime_kst"].dt.year.unique())
+        year_vals = [
+            len(_slice(df, pd.Timestamp(f"{y}-01-01", tz=KST), pd.Timestamp(f"{y + 1}-01-01", tz=KST))) for y in years
+        ]
+        lines.append("")
+        lines.append("### 연도별 청취량 추이")
+        lines.append(
+            f"추이: {_sparkline(year_vals)}  " + ", ".join(f"{y}년 {v:,}회" for y, v in zip(years, year_vals))
+            + "  (기록이 시작·끝나는 해는 일부 기간일 수 있음)"
+        )
+        daily = cur.groupby(cur["datetime_kst"].dt.strftime("%Y-%m-%d")).size()
+        busiest = daily.sort_values(ascending=False).head(5)
+        days = pd.to_datetime(pd.Series(daily.index)).sort_values().reset_index(drop=True)
+        streak, best, best_end = 1, 1, days.iloc[0]
+        for i in range(1, len(days)):
+            streak = streak + 1 if (days.iloc[i] - days.iloc[i - 1]).days == 1 else 1
+            if streak > best:
+                best, best_end = streak, days.iloc[i]
+        lines.append("")
+        lines.append("### 연간 하이라이트")
+        lines.append("- 가장 많이 들은 날 Top 5: " + ", ".join(f"{d} ({int(n)}회)" for d, n in busiest.items())
+                     + " (새벽에 켜 둔 채 잠든 기록이 포함됐을 수 있음)")
+        lines.append(f"- 가장 길게 이어진 연속 청취: {best}일 (마지막 날 {best_end:%Y-%m-%d})")
+        lines.append(f"- 하루 100회 이상 들은 날: {int((daily >= 100).sum())}일 / 청취한 날 {len(daily)}일")
     else:
         daily = cur.groupby(cur["datetime_kst"].dt.strftime("%Y-%m-%d")).size()
         days_index = [f"{(start + pd.Timedelta(days=i)):%Y-%m-%d}" for i in range(min(total_days, covered_days + max(0, (max(start, data_first.normalize()) - start).days)))]
@@ -261,7 +323,8 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     lines.append(f"## 3. 순위 (재생 횟수 기준, {prev_label} 대비)")
     for col, name in [("artist", "아티스트"), ("track_key", "트랙"), ("album_key", "앨범")]:
         lines.append(f"### Top 10 {name}")
-        lines.append(_table(["순위", name, unit_cap, prev_label, "상태"], _top_compare(cur, prev, before, col)))
+        lines.append(_table(["순위", name, unit_cap, prev_label, "상태"],
+                            _top_compare(cur, prev, before, col, prev_word="전년" if period == "year" else "직전")))
         lines.append("")
 
     # 4. 신규 발견 / 복귀
@@ -280,11 +343,11 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     hist_art = set(before[before["artist"] != ""]["artist"])
     returned = sorted((cur_art - prev_art) & hist_art, key=lambda a: -int(_named_counts(cur, "artist").get(a, 0)))
     gone = sorted(prev_art - cur_art, key=lambda a: -int(_named_counts(prev, "artist").get(a, 0)))
-    lines.append(f"### 직전 {unit}엔 없다가 돌아온 아티스트 (Top 8, 재생 횟수순)")
-    lines.append(_table(["아티스트", "이번 재생"], [[a, int(_named_counts(cur, 'artist')[a])] for a in returned[:8]]))
+    lines.append(f"### {prev_label}엔 없다가 돌아온 아티스트 (Top 8, 재생 횟수순)")
+    lines.append(_table(["아티스트", f"{unit_cap} 재생"], [[a, int(_named_counts(cur, 'artist')[a])] for a in returned[:8]]))
     lines.append("")
-    lines.append(f"### 직전 {unit}엔 들었지만 {unit_cap}엔 사라진 아티스트 (Top 8, 직전 재생순)")
-    lines.append(_table(["아티스트", "직전 재생"], [[a, int(_named_counts(prev, 'artist')[a])] for a in gone[:8]]))
+    lines.append(f"### {prev_label}엔 들었지만 {unit_cap}엔 사라진 아티스트 (Top 8, {prev_label} 재생순)")
+    lines.append(_table(["아티스트", f"{prev_label} 재생"], [[a, int(_named_counts(prev, 'artist')[a])] for a in gone[:8]]))
     lines.append("")
 
     # 5. 시간 패턴
@@ -357,9 +420,10 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     if len(art):
         lines.append(f"- 상위 1명 비중 {art.iloc[0] / art.sum() * 100:.0f}% · 상위 3명 비중 {art.head(3).sum() / art.sum() * 100:.0f}%")
     rep = cur["track_key"].value_counts()
-    rep = rep[rep >= 3]
+    rep_min = 10 if period == "year" else 3        # 한 해는 3번이면 너무 흔해서 기준을 올린다
+    rep = rep[rep >= rep_min]
     lines.append("")
-    lines.append(f"### {unit_cap} 3번 이상 반복 재생한 트랙")
+    lines.append(f"### {unit_cap} {rep_min}번 이상 반복 재생한 트랙")
     lines.append(_table(["트랙", "재생 횟수"], [[n, int(c)] for n, c in rep.head(8).items()]))
     lines.append("")
 
@@ -373,6 +437,14 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
             "주차별 흐름과 일별 추이를 보고, 이번 달 청취 리듬(몰아 들은 시기, 뜸했던 시기)과 그 원인으로 짐작되는 것을 말해 주세요.",
             "시간대·세션 데이터를 보고 청취 습관(언제, 얼마나 길게)에 대해 알려주세요. 새벽 장시간 재생은 자는 동안 켜져 있던 것일 수 있으니 감안해 주세요.",
             "다음 달에 들어보면 좋을 아티스트/앨범을 3~5개 추천해 주세요 (이번 달 신규 발견과 비중이 늘어난 장르를 근거로).",
+        ]
+    elif period == "year":
+        asks = [
+            f"{label} 한 해의 음악 취향을 한두 문단으로 요약하고, {prev_label}과 달라진 점을 짚어주세요.",
+            "월별 표와 12개월 추이를 보고, 한 해의 흐름(몰두한 시기, 뜸했던 시기)과 그 계기로 짐작되는 것을 설명해 주세요.",
+            "연간 Top 10(아티스트/트랙/앨범)과 신규 발견·복귀 목록을 보고, 이 해의 '키워드' 3개를 뽑아 한 줄씩 설명해 주세요.",
+            "장르·언어권 비중 변화에서 취향이 크게 이동했는지 분석하고, 시간대·세션 데이터로 청취 습관이 달라졌는지 짚어주세요. 새벽 장시간 재생은 자는 동안 켜져 있던 것일 수 있으니 감안해 주세요.",
+            "다음 해에 파볼 만한 장르·아티스트·앨범을 5개 추천해 주세요 (이 해의 신규 발견과 비중이 늘어난 장르를 근거로).",
         ]
     else:
         asks = [

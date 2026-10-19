@@ -21,6 +21,10 @@ last.fm 스크로블 CSV(uts,utc_time,artist,album,track,source)에서 애플 �
       그 날 애플 로그의 실제 재생 수가 0     -> run 전체 제거      (log:no_play)
       0 < 재생 수 < run 길이                 -> 초과분 제거         (log:excess)
     2026-09 기준 이 규칙으로 지운 6천여 행은 PLAY_END 재집계에서도 되살릴 행이 0건.
+  - 예외: 라이브러리 JSON 에서 Apple Music 카탈로그 식별자가 없는 곡(내 파일·구매·매칭 곡 등)은
+    애플 로그가 원래 기록하지 못하므로 "로그에 없음"을 증거로 쓸 수 없다. 이런 곡은 지우지
+    않고 "보류(noncatalog_unverifiable)"로만 보고한다. (Last.fm 기록이 기준, 애플 로그는 참고)
+    --no-catalog-check 로 이 예외를 끌 수 있다.
 [provisional] 애플 로그가 없는 구간 (로그 종료 이후 또는 로그를 못 받았을 때)
   - 길이 일치 2회 묶음이면서 첫 행과 둘째 행이 모두 "다른 곡이 같은 초(±3초)에
     시작한 행"과 겹치면 둘째 행 제거 (provisional:pair_both_clash).
@@ -267,6 +271,10 @@ def judge(rows, state, log, durations_factory, args):
             continue                                   # 길이와 안 맞는 반복은 실제 청취로 본다
         ids = run["row_ids"]
         if in_log_phase:
+            cat = log.get("catalog")
+            if cat is not None and cat.is_noncatalog(run["artist"], run["track"]):
+                note("noncatalog_unverifiable", run)      # 애플 로그가 못 보는 곡: 지우지 않음
+                continue
             ac = det.apple_corroboration_count(run, log["counts"])
             if ac >= n:
                 continue
@@ -320,6 +328,8 @@ def main():
     ap.add_argument("--apple-dir", default=os.environ.get("APPLE_ACTIVITY_DIR"))
     ap.add_argument("--library-xml", default=None)
     ap.add_argument("--no-api", action="store_true", help="last.fm 곡 길이 조회를 쓰지 않는다")
+    ap.add_argument("--no-catalog-check", action="store_true",
+                    help="카탈로그 식별자 없는 곡을 로그 규칙에서 빼는 예외를 끈다 (이전 동작)")
     ap.add_argument("--rescan", action="store_true", help="provisional 구간 전체를 다시 훑는다")
     ap.add_argument("--json", action="store_true", help="요약을 JSON 한 줄로 출력")
     args = ap.parse_args()
@@ -363,6 +373,12 @@ def main():
     if args.apple_dir:
         first_pass = {r["track"] for r in rows if r["source"] == "L"}      # 로그에서 모을 곡 범위
         log, xml_map = load_log(args.apple_dir, args.library_xml, first_pass)
+        log["catalog"] = None
+        if not args.no_catalog_check:
+            log["catalog"] = det.load_catalog_index(Path(args.apple_dir) / "Apple Music Library Tracks.json.zip")
+            if log["catalog"] is None:
+                print("경고: Apple 라이브러리 JSON 을 못 찾아 카탈로그 확인을 건너뜁니다 "
+                      "(카탈로그 없는 곡도 로그 규칙으로 판정됨).")
         if log["end_uts"] and (state.get("apple_log_end_uts") or 0) >= log["end_uts"]:
             log, xml_map = None, {}                                         # 새 로그가 아님
     if log:

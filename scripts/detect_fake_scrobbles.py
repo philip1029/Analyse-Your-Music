@@ -49,13 +49,22 @@ iOS 공식 Last.fm 앱의 "Scan & submit scrobbles manually" 기능은 애플 �
 원본 스크로블 CSV에서 제거한다 (원본은 자동으로 .bak 백업).
 --apple-activity 와 --library-xml 은 둘 중 하나만 있어도 동작하지만,
 정확도를 위해 가능하면 둘 다 넣는 것을 권장한다.
+
+원칙: Last.fm 기록이 기준이고 애플 로그는 참고 자료다. "애플 로그에 없다"는 사실만으로
+지우지 않는다. 애플 로그는 카탈로그 곡(스트리밍)만 기록하므로, 라이브러리 JSON 에서
+카탈로그 식별자가 없는 곡(내 파일·구매·매칭 곡 등)은 로그 규칙(REMOVE/PARTIAL)에서 빼고
+UNVERIFIABLE 로 두며 아무것도 지우지 않는다. (--no-catalog-check 로 끌 수 있음)
 """
 
 import argparse
 import csv
+import json
 import os
 import plistlib
+import re
 import shutil
+import unicodedata
+import zipfile
 from collections import defaultdict, Counter
 from datetime import datetime, timedelta, timezone
 
@@ -105,6 +114,59 @@ def load_library_durations(xml_path):
         if name and total_ms:
             name_to_durations[name].add(round(total_ms / 1000))
     return name_to_durations
+
+
+def _key(s):
+    """이름 비교용 정규화: NFKC, 소문자, 글자·숫자만 남김."""
+    return re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", str(s)).lower())
+
+
+class CatalogIndex:
+    """
+    애플 재생 로그는 Apple Music 카탈로그 곡(스트리밍)의 재생만 기록한다. 라이브러리에
+    있지만 카탈로그 식별자(Apple Music Track Identifier)가 없는 곡(내 파일, 구매·매칭 곡
+    등)은 아무리 들어도 로그에 안 남는다. 그런 곡에는 "애플 로그에 그날 재생이 없다"가
+    가짜의 증거가 될 수 없으므로, 로그 기반 규칙(log:no_play / log:excess)에서 뺀다.
+
+    판정: 아티스트+곡명 키로 먼저 찾고, 없으면 곡명만으로 찾는다(아티스트 표기 차이 보완,
+    같은 곡명의 라이브러리 항목이 전부 카탈로그 없음일 때만). 라이브러리에 아예 없는 곡은
+    스트리밍 곡으로 보고 False(= 기존 규칙 적용)를 돌려준다.
+    """
+
+    def __init__(self, tracks):
+        self.by_artist_title, self.by_title = {}, {}
+        for t in tracks:
+            title, artist = t.get("Title"), t.get("Artist") or ""
+            if not title:
+                continue
+            ident = str(t.get("Apple Music Track Identifier") or "").strip()
+            has_catalog = bool(ident) and ident.lower() != "nan"
+            ka, kt = f"{_key(artist)}|{_key(title)}", _key(title)
+            self.by_artist_title[ka] = self.by_artist_title.get(ka, False) or has_catalog
+            self.by_title[kt] = self.by_title.get(kt, False) or has_catalog
+
+    def is_noncatalog(self, artist, track):
+        ka = f"{_key(artist or '')}|{_key(track)}"
+        if ka in self.by_artist_title:
+            return not self.by_artist_title[ka]
+        kt = _key(track)
+        return kt in self.by_title and not self.by_title[kt]
+
+
+def load_catalog_index(path):
+    """Apple Music Library Tracks.json(.zip) -> CatalogIndex. 파일이 없으면 None."""
+    if not path or not os.path.exists(path):
+        return None
+    if str(path).lower().endswith(".zip"):
+        with zipfile.ZipFile(path) as z:
+            name = next((n for n in z.namelist() if n.lower().endswith(".json")), None)
+            if name is None:
+                return None
+            tracks = json.loads(z.read(name))
+    else:
+        with open(path, encoding="utf-8") as f:
+            tracks = json.load(f)
+    return CatalogIndex(tracks)
 
 
 def load_apple_activity(apple_csv_path, needed_tracks):
@@ -233,7 +295,7 @@ def apple_corroboration_count(run, apple_counts):
 
 
 def classify_run(run, name_to_durations, apple_durations, apple_counts, have_apple_log,
-                log_end_uts=None):
+                log_end_uts=None, catalog_index=None):
     match = duration_match(run, name_to_durations, apple_durations)
     run["duration_match"] = match
 
@@ -271,6 +333,16 @@ def classify_run(run, name_to_durations, apple_durations, apple_counts, have_app
         run["apple_count_same_day"] = None
         run["rows_to_keep"] = [run["row_ids"][0]]
         run["rows_to_remove"] = run["row_ids"][1:]
+        return run
+
+    if catalog_index is not None and catalog_index.is_noncatalog(run.get("artist", ""), run["track"]):
+        # Last.fm 기록이 기준이다. 애플 로그가 원래 기록하지 못하는 곡은 "로그에 없음"을
+        # 가짜의 증거로 쓸 수 없으므로 확인 불가로 두고, 아무것도 지우지 않는다.
+        run["classification"] = "UNVERIFIABLE"
+        run["apple_count_same_day"] = None
+        run["rows_to_remove"] = []
+        run["rows_to_keep"] = list(run["row_ids"])
+        run["reason"] = "noncatalog"
         return run
 
     ac = apple_corroboration_count(run, apple_counts)
@@ -438,6 +510,10 @@ def main():
     parser.add_argument("--scrobbles", required=True)
     parser.add_argument("--apple-activity", default=None)
     parser.add_argument("--library-xml", default=None)
+    parser.add_argument("--library-json", default=None,
+                        help="Apple Music Library Tracks.json(.zip). 생략하면 --apple-activity 와 같은 폴더에서 찾는다")
+    parser.add_argument("--no-catalog-check", action="store_true",
+                        help="카탈로그 식별자 없는 곡을 로그 규칙에서 빼는 예외를 끈다 (이전 동작)")
     parser.add_argument("--source-filter", default=None, help="이 값과 source 열이 일치하는 행만 검사 (예: L)")
     parser.add_argument("--run-output", default=None, help="구간(run) 단위 감사 리포트 CSV 경로")
     parser.add_argument("--row-output", default=None, help="행 단위 판정 결과 CSV 경로")
@@ -460,9 +536,21 @@ def main():
         print("애플 로그 종료 시각(KST): "
               + datetime.fromtimestamp(log_end_uts, tz=timezone.utc).astimezone(KST).strftime("%Y-%m-%d %H:%M:%S"))
 
+    catalog_index = None
+    if have_apple_log and not args.no_catalog_check:
+        lib_json = args.library_json or os.path.join(
+            os.path.dirname(os.path.abspath(args.apple_activity)), "Apple Music Library Tracks.json.zip")
+        catalog_index = load_catalog_index(lib_json)
+        if catalog_index is None:
+            print("경고: Apple 라이브러리 JSON 을 못 찾아 카탈로그 확인을 건너뜁니다 "
+                  "(카탈로그 없는 곡도 로그 규칙으로 판정됨). --library-json 으로 지정하세요.")
+        else:
+            n_non = sum(1 for v in catalog_index.by_artist_title.values() if not v)
+            print(f"카탈로그 확인: 라이브러리에서 카탈로그 식별자가 없는 곡 {n_non}개는 로그 규칙에서 제외(확인 불가)")
+
     for run in all_runs:
         classify_run(run, name_to_durations, apple_durations, apple_counts, have_apple_log,
-                     log_end_uts)
+                     log_end_uts, catalog_index)
 
     row_verdicts = build_row_verdicts(scrobble_rows, all_runs)
 

@@ -160,8 +160,16 @@ def main():
         if n_ledger:
             pp.write_csv_atomic(ledger_path, pp.LEDGER_FIELDS, ledger)
 
+    # 이전 실행에서 적용한 변형도 보존하도록 기존 목록에 합친다 (덮어쓰면 앞선 기록이 사라진다)
+    merged = {}
+    if CANONICAL_FILE.exists():
+        for line in CANONICAL_FILE.read_text(encoding="utf-8").splitlines():
+            if "->" in line and not line.lstrip().startswith("#"):
+                v, c = line.split("->", 1)
+                merged[v.strip()] = c.strip()
+    merged.update(mapping)
     lines = ["# normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기만 다른 이름)"]
-    lines += [f"{v} -> {c}" for v, c in sorted(mapping.items())]
+    lines += [f"{v} -> {c}" for v, c in sorted(merged.items())]
     CANONICAL_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"  반영 완료: {len(new_log)}행 (백업: {backup.name}, 기록: {log_path.name}, 설정: config/{CANONICAL_FILE.name}, "
           f"제거 기록 {n_ledger}행 갱신)")

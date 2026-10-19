@@ -1,5 +1,6 @@
 import pandas as pd
 from app.analysis.diversity import compute_diversity
+from app.analysis.keys import key_series, unique_count
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.analysis.taste import compute_tag_distribution, compute_tag_evolution_dynamic
 from app.analysis.trends import (
@@ -44,16 +45,16 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
 
     total_scrobbles = len(df)
     unique_artists = df["artist"].nunique()
-    unique_tracks = df["track"].nunique()
-    unique_albums = df["album"].nunique()
+    unique_tracks = unique_count(df, "track")
+    unique_albums = unique_count(df, "album")
     first_date = df["datetime_kst"].min().strftime("%Y-%m-%d")
     last_date = df["datetime_kst"].max().strftime("%Y-%m-%d")
 
     top_artists = _top_n(df, "artist", 10)
-    # 곡명만 같은 다른 아티스트의 곡(Untitled 등)이 합쳐지지 않도록 "아티스트 - 곡명"으로 센다
-    track_df = df.assign(track_key=df.apply(lambda r: f"{r['artist']} - {r['track']}" if pd.notna(r["artist"]) and r["artist"] != "" else r["track"], axis=1))
-    top_tracks = _top_n(track_df, "track_key", 10)
-    top_albums = _top_n(df, "album", 10)
+    # 곡명·앨범명만 같은 다른 아티스트의 항목(Untitled 등)이 합쳐지지 않도록 "아티스트 - 이름"으로 센다
+    keyed = df.assign(track_key=key_series(df, "track"), album_key=key_series(df, "album"))
+    top_tracks = _top_n(keyed, "track_key", 10)
+    top_albums = _top_n(keyed, "album_key", 10)
 
     diversity = compute_diversity(df)
     discovery = compute_discovery(df)

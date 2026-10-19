@@ -15,6 +15,8 @@ from app.lastfm.album_art import get_album_art
 from app.lastfm.artist_art import get_artist_art
 from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
+from app.analysis.keys import unique_count, key_series
+from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
     get_artist_tags_page,
     fetch_next_artist_tags,
@@ -90,9 +92,9 @@ def stats(start: str | None = None, end: str | None = None):
 
     return {
         "total_scrobbles": len(df),
-        "unique_tracks": df["track"].nunique(),
+        "unique_tracks": unique_count(df, "track"),
         "unique_artists": df["artist"].nunique(),
-        "unique_albums": df["album"].nunique(),
+        "unique_albums": unique_count(df, "album"),
         "first_scrobble": df["utc_time"].min(),
         "last_scrobble": df["utc_time"].max(),
     }
@@ -187,39 +189,50 @@ def music_top(
         return {"error": "data 폴더에 csv 파일이 없습니다."}
 
     column = column_map[category]
+    full = df                                   # 꾸준함 계산은 기간 전체 기준 (항목별 필터 전)
     df = df[df[column].notna() & (df[column] != "")]
 
     results = []
-    if column == "track":
-        # 곡명만 같고 아티스트가 다른 곡(예: Untitled, Intro)이 한 곡으로 합쳐지지 않도록 (아티스트, 곡명)으로 센다
+    if column == "artist":
+        for name, count in df["artist"].value_counts().head(limit).items():
+            results.append({"name": name, "count": int(count), "artist": None, "_key": name})
+    else:
+        # 곡명·앨범명만 같은 다른 아티스트의 항목(Untitled, Eureka 등)이 합쳐지지 않도록 (아티스트, 이름)으로 센다
         df = df.assign(artist=df["artist"].fillna(""))
-        counts = df.groupby(["artist", "track"]).size().sort_values(ascending=False, kind="stable").head(limit)
+        counts = df.groupby(["artist", column]).size().sort_values(ascending=False, kind="stable").head(limit)
         for (artist, name), count in counts.items():
-            # 커버용: 이 곡이 가장 많이 기록된 앨범
-            albums = df[(df["track"] == name) & (df["artist"] == artist)]["album"]
-            albums = albums[albums.notna() & (albums != "")]
-            results.append(
-                {
-                    "name": name,
-                    "count": int(count),
-                    "artist": artist or None,
-                    "album": albums.value_counts().index[0] if len(albums) else None,
-                }
-            )
-        return {"category": category, "results": results}
+            item = {"name": name, "count": int(count), "artist": artist or None, "_key": f"{artist} - {name}" if artist else name}
+            if column == "track":
+                # 커버용: 이 곡이 가장 많이 기록된 앨범
+                albums = df[(df["track"] == name) & (df["artist"] == artist)]["album"]
+                albums = albums[albums.notna() & (albums != "")]
+                item["album"] = albums.value_counts().index[0] if len(albums) else None
+            results.append(item)
 
-    top_counts = df[column].value_counts().head(limit)
-    for name, count in top_counts.items():
-        first_match = df[df[column] == name].iloc[0]
-        results.append(
-            {
-                "name": name,
-                "count": int(count),
-                "artist": first_match["artist"] if column != "artist" else None,
-            }
-        )
+    # 날짜 편향도: 월별 재생 분포 (처음 들은 달 ~ 마지막 달)
+    stats, months = stats_for_keys(full, category, [r["_key"] for r in results])
+    for r in results:
+        r["consistency"] = stats.get(r.pop("_key"))
+    return {"category": category, "months": months, "results": results}
 
-    return {"category": category, "results": results}
+
+@app.get("/api/music/consistency")
+def music_consistency(
+    category: str = "track",
+    min_plays: int = 20,
+    min_months: int = 12,
+    limit: int = 50,
+    sort: str = "even",
+    start: str | None = None,
+    end: str | None = None,
+):
+    """꾸준히(고르게) 들은 항목 순위. sort=even 고른 순, sort=biased 한 시기에 몰린 순."""
+    if category not in ("artist", "track", "album"):
+        return {"error": "category는 artist, track, album 중 하나여야 합니다."}
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return compute_consistency(df, category, min_plays=min_plays, min_months=min_months, limit=limit, sort=sort)
 
 
 @app.get("/api/taste/artists")
@@ -462,7 +475,7 @@ def listening_day(date: str, start: str | None = None, end: str | None = None):
         "date": date,
         "total_plays": len(day_df),
         "unique_artists": int(day_df["artist"].nunique()) if len(day_df) else 0,
-        "unique_tracks": int(day_df["track"].nunique()) if len(day_df) else 0,
+        "unique_tracks": unique_count(day_df, "track") if len(day_df) else 0,
         "top_artists": [{"name": name, "count": int(count)} for name, count in artist_counts.head(5).items()],
         "tracks": tracks,
     }

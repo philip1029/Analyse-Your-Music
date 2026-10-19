@@ -1,5 +1,7 @@
 import pandas as pd
 
+from app.analysis.keys import key_series
+
 
 def compute_discovery(df: pd.DataFrame) -> dict:
     """
@@ -15,8 +17,9 @@ def compute_discovery(df: pd.DataFrame) -> dict:
 
     result = {}
     for category, column in [("track", "track"), ("artist", "artist"), ("album", "album")]:
-        valid = df_sorted[df_sorted[column].notna() & (df_sorted[column] != "")]
-        first_seen = valid.drop_duplicates(subset=[column], keep="first")
+        # 곡명·앨범명만 같은 다른 아티스트의 항목은 별개로 보고 최초 청취를 센다
+        keys = key_series(df_sorted, column)
+        first_seen = df_sorted[(keys != "") & ~keys.duplicated(keep="first")]
 
         monthly_new = first_seen.groupby("year_month").size().sort_index()
 
@@ -41,8 +44,8 @@ def get_discovery_timeline(df: pd.DataFrame, category: str = "track", limit: int
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
 
     df_sorted = df.sort_values("datetime_kst")
-    valid = df_sorted[df_sorted[column].notna() & (df_sorted[column] != "")]
-    first_seen = valid.drop_duplicates(subset=[column], keep="first")
+    keys = key_series(df_sorted, column)
+    first_seen = df_sorted[(keys != "") & ~keys.duplicated(keep="first")]
 
     first_seen = first_seen.sort_values("datetime_kst", ascending=False).head(limit)
 

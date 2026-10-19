@@ -1,6 +1,8 @@
 import math
 import pandas as pd
 
+from app.analysis.keys import key_series
+
 
 def _shannon_entropy(counts: pd.Series) -> float:
     """
@@ -34,8 +36,9 @@ def compute_diversity(df: pd.DataFrame) -> dict:
     result = {}
 
     for category, column in [("artist", "artist"), ("track", "track"), ("album", "album")]:
-        valid = df[df[column].notna() & (df[column] != "")]
-        counts = valid[column].value_counts()
+        # 곡명·앨범명만 같은 다른 아티스트의 항목이 합쳐지지 않도록 "아티스트 - 이름" 키로 센다
+        keys = key_series(df, column)
+        counts = keys[keys != ""].value_counts()
 
         max_entropy = math.log2(len(counts)) if len(counts) > 1 else 1
         entropy = _shannon_entropy(counts)

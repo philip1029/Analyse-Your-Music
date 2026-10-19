@@ -83,11 +83,37 @@ type TagDistribution = {
   total_artists: number;
 };
 
+// 월별 재생 분포로 본 "꾸준함". evenness 1 = 모든 달에 고르게, 0 = 한 달에 몰림
+type Consistency = {
+  plays: number;
+  first_month: string;
+  last_month: string;
+  months: number;
+  active_months: number;
+  months_since_last: number;
+  evenness: number | null;
+  bias: number | null;
+  peak_month: string;
+  peak_share: number;
+  monthly: number[];
+};
+
 type TopItem = {
   name: string;
   count: number;
   artist: string | null;
   album?: string | null;
+  consistency?: Consistency | null;
+};
+
+type ConsistencyItem = Consistency & { key: string; name: string; artist: string | null };
+
+type ConsistencyResult = {
+  category: "artist" | "track" | "album";
+  months: string[];
+  criteria: { min_plays: number; min_months: number };
+  total_candidates: number;
+  results: ConsistencyItem[];
 };
 
 type DateRange = {
@@ -115,12 +141,13 @@ type Diversity = {
   album: DiversityMetric;
 };
 
-type TabId = "overview" | "listening" | "music" | "discovery" | "taste" | "data";
+type TabId = "overview" | "listening" | "music" | "consistency" | "discovery" | "taste" | "data";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "listening", label: "Listening" },
   { id: "music", label: "Music" },
+  { id: "consistency", label: "Consistency" },
   { id: "discovery", label: "Discovery" },
   { id: "taste", label: "Taste" },
   { id: "data", label: "Data" },
@@ -218,6 +245,40 @@ function Cover({
     return <img src={url} alt={label ?? ""} width={size} height={size} loading="lazy" onError={() => setFailed(true)} style={{ ...box, objectFit: "cover" }} />;
   }
   return <div style={box}>{label ? Array.from(label)[0] : "♪"}</div>;
+}
+
+// 월별 재생 수 막대 미니 그래프 (전체 기간 달 기준이라 "지금은 안 듣는" 항목은 오른쪽이 비어 보인다)
+function Sparkline({ monthly, months, width = 96, height = 20 }: { monthly: number[]; months: string[]; width?: number; height?: number }) {
+  const max = Math.max(...monthly, 1);
+  const bw = width / monthly.length;
+  return (
+    <svg width={width} height={height} style={{ flexShrink: 0 }} role="img" aria-label="월별 재생 수">
+      {monthly.map((c, i) => {
+        const h = c === 0 ? 1 : Math.max(2, (c / max) * height);
+        return (
+          <rect key={i} x={i * bw} y={height - h} width={Math.max(bw - 0.6, 0.5)} height={h} fill={c === 0 ? "#555" : "#8884d8"}>
+            <title>{`${months[i]}: ${c}회`}</title>
+          </rect>
+        );
+      })}
+    </svg>
+  );
+}
+
+function consistencyText(c: Consistency): string {
+  if (c.evenness === null) return `${c.first_month} 시작 · 아직 한 달`;
+  const gone = c.months_since_last >= 1 ? ` · 마지막 청취 ${c.months_since_last}개월 전` : " · 이번 달에도 들음";
+  return `고름 ${Math.round(c.evenness * 100)}% · ${c.active_months}/${c.months}개월 청취${gone}`;
+}
+
+function ConsistencyLine({ c, months }: { c: Consistency | null | undefined; months: string[] }) {
+  if (!c) return null;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, marginTop: 3, textAlign: "left" }}>
+      <Sparkline monthly={c.monthly} months={months} width={Math.min(120, months.length * 4)} height={16} />
+      <span style={{ color: "#888", fontSize: "0.75rem" }}>{consistencyText(c)}</span>
+    </div>
+  );
 }
 
 function YearHeatmap({
@@ -699,6 +760,14 @@ const handleCopyPrompt = () => {
   const [topArtists, setTopArtists] = useState<TopItem[]>([]);
   const [topTracks, setTopTracks] = useState<TopItem[]>([]);
   const [topAlbums, setTopAlbums] = useState<TopItem[]>([]);
+  const [topMonths, setTopMonths] = useState<string[]>([]);
+
+  const [consCategory, setConsCategory] = useState<"artist" | "track" | "album">("track");
+  const [consSort, setConsSort] = useState<"even" | "biased">("even");
+  const [consMinPlays, setConsMinPlays] = useState(20);
+  const [consMinMonths, setConsMinMonths] = useState(12);
+  const [consData, setConsData] = useState<ConsistencyResult | null>(null);
+  const [consLoading, setConsLoading] = useState(false);
 
   const [tagDistribution, setTagDistribution] = useState<TagDistribution | null>(null);
   const [tagEvolution, setTagEvolution] = useState<TagEvolution | null>(null);
@@ -745,6 +814,32 @@ const handleCopyPrompt = () => {
     },
     [buildQuery]
   );
+
+  useEffect(() => {
+    if (activeTab !== "consistency") return;
+    let cancelled = false;
+    setConsLoading(true);
+    fetch(
+      `${BASE_URL}/api/music/consistency${buildQuery({
+        category: consCategory,
+        sort: consSort,
+        min_plays: consMinPlays,
+        min_months: consMinMonths,
+        limit: 50,
+      })}`
+    )
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setConsData(data.error ? null : data);
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => {
+        if (!cancelled) setConsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, consCategory, consSort, consMinPlays, consMinMonths, buildQuery]);
 
   const loadAllData = useCallback(() => {
     const qs = buildQuery();
@@ -815,7 +910,10 @@ const handleCopyPrompt = () => {
 
     fetch(`${BASE_URL}/api/music/top${buildQuery({ category: "album", limit: 10 })}`)
       .then((res) => res.json())
-      .then((data) => setTopAlbums(data.results))
+      .then((data) => {
+        setTopAlbums(data.results);
+        setTopMonths(data.months ?? []);
+      })
       .catch((err) => setError(err.message));
 
     fetch(`${BASE_URL}/api/taste/tag-distribution${qs}`)
@@ -1235,8 +1333,9 @@ const handleCopyPrompt = () => {
                   <li key={i} style={{ marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                       <Cover kind="artist" artist={item.name} />
-                      <span>
+                      <span style={{ textAlign: "left" }}>
                         {item.name} <span style={{ color: "#888" }}>({item.count}회)</span>
+                        <ConsistencyLine c={item.consistency} months={topMonths} />
                       </span>
                     </div>
                   </li>
@@ -1251,10 +1350,11 @@ const handleCopyPrompt = () => {
                   <li key={i} style={{ marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                       <Cover kind="album" artist={item.artist} album={item.album} />
-                      <span>
+                      <span style={{ textAlign: "left" }}>
                         {item.name}
                         {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
                         <span style={{ color: "#888" }}>({item.count}회)</span>
+                        <ConsistencyLine c={item.consistency} months={topMonths} />
                       </span>
                     </div>
                   </li>
@@ -1269,10 +1369,11 @@ const handleCopyPrompt = () => {
                   <li key={i} style={{ marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                       <Cover kind="album" artist={item.artist} album={item.name} />
-                      <span>
+                      <span style={{ textAlign: "left" }}>
                         {item.name}
                         {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
                         <span style={{ color: "#888" }}>({item.count}회)</span>
+                        <ConsistencyLine c={item.consistency} months={topMonths} />
                       </span>
                     </div>
                   </li>
@@ -1280,6 +1381,77 @@ const handleCopyPrompt = () => {
               </ol>
             </div>
           </div>
+        </>
+      )}
+
+      {/* Consistency 탭: 월별 재생이 고르게 퍼진 순 / 한 시기에 몰린 순 */}
+      {activeTab === "consistency" && (
+        <>
+          <h2>청취 날짜 편향도</h2>
+          <p style={{ color: "#888", marginTop: 0, fontSize: "0.9rem" }}>
+            항목을 처음 들은 달부터 지금까지를 월 단위로 나눠, 재생이 얼마나 고르게 퍼져 있는지 봅니다. 100%에 가까울수록 꾸준히,
+            0%에 가까울수록 한 시기에 몰아 들은 항목입니다. 지금은 안 듣는 곡은 마지막 달들이 비어 점수가 내려갑니다.
+          </p>
+          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", marginBottom: "1rem" }}>
+            <label>
+              대상{" "}
+              <select value={consCategory} onChange={(e) => setConsCategory(e.target.value as "artist" | "track" | "album")}>
+                <option value="track">트랙</option>
+                <option value="artist">아티스트</option>
+                <option value="album">앨범</option>
+              </select>
+            </label>
+            <label>
+              정렬{" "}
+              <select value={consSort} onChange={(e) => setConsSort(e.target.value as "even" | "biased")}>
+                <option value="even">가장 고른 순</option>
+                <option value="biased">가장 몰린 순</option>
+              </select>
+            </label>
+            <label>
+              최소 재생{" "}
+              <input type="number" min={5} value={consMinPlays} style={{ width: 64 }} onChange={(e) => setConsMinPlays(Math.max(5, Number(e.target.value) || 5))} />
+              회
+            </label>
+            <label>
+              최소 기간{" "}
+              <input type="number" min={2} value={consMinMonths} style={{ width: 56 }} onChange={(e) => setConsMinMonths(Math.max(2, Number(e.target.value) || 2))} />
+              개월
+            </label>
+          </div>
+          {consLoading && <p style={{ color: "#888" }}>불러오는 중...</p>}
+          {consData && (
+            <>
+              <p style={{ color: "#888", fontSize: "0.85rem" }}>
+                조건에 맞는 항목 {consData.total_candidates}개 중 상위 {consData.results.length}개 ({consData.months[0]} ~ {consData.months[consData.months.length - 1]})
+              </p>
+              <ol style={{ paddingLeft: "1.8rem" }}>
+                {consData.results.map((item) => (
+                  <li key={item.key} style={{ marginBottom: "0.7rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
+                      {consData.category !== "track" ? (
+                        <Cover kind={consData.category} artist={consData.category === "artist" ? item.name : item.artist} album={item.name} />
+                      ) : null}
+                      <div style={{ minWidth: 220, flex: 1 }}>
+                        <div>
+                          {item.name}
+                          {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
+                          <span style={{ color: "#888" }}>({item.plays}회)</span>
+                        </div>
+                        <div style={{ color: "#888", fontSize: "0.8rem" }}>
+                          {item.first_month} 시작 · {item.active_months}/{item.months}개월 청취 · 최다 {item.peak_month} ({Math.round(item.peak_share * 100)}%)
+                          {item.months_since_last >= 1 ? ` · 마지막 청취 ${item.months_since_last}개월 전` : ""}
+                        </div>
+                      </div>
+                      <Sparkline monthly={item.monthly} months={consData.months} width={Math.min(180, consData.months.length * 6)} height={28} />
+                      <strong style={{ width: 56, textAlign: "right" }}>{item.evenness === null ? "-" : `${Math.round(item.evenness * 100)}%`}</strong>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              {consData.results.length === 0 && <p style={{ color: "#888" }}>조건에 맞는 항목이 없습니다. 최소 재생·기간을 낮춰 보세요.</p>}
+            </>
+          )}
         </>
       )}
 

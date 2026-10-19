@@ -1,4 +1,4 @@
-# normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기만 다른 이름)
+# normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기 규칙 + config/artist_merge.txt 수동 목록)
 Angine de poitrine -> Angine de Poitrine
 Apistat Commander -> apistat commander
 Biglietto per l'inferno -> Biglietto per l'Inferno
@@ -16,6 +16,7 @@ M1dy -> m1dy
 MIDORi -> Midori
 MONOGATARI Series -> Monogatari Series
 OMA -> Oma
+Parannoul -> 파란노을
 Planning For Burial -> Planning for Burial
 Rovo -> ROVO
 System Of A Down -> System of a Down

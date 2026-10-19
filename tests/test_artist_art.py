@@ -80,6 +80,13 @@ class ArtistArtTest(unittest.TestCase):
             self.assertEqual(ar.get_artist_art("Radiohead"), {"url": None, "cached": False})
         self.assertEqual(list(Path(self.tmp.name).iterdir()), [])
 
+    def test_photo_name_mapping_searches_and_matches_the_mapped_name(self):
+        with mock.patch.object(ar, "load_photo_names", return_value={"파란노을": "Parannoul"}):
+            with mock.patch.object(ar.requests, "get", return_value=Resp({"data": [hit("Parannoul")]})) as g:
+                r = ar.get_artist_art("파란노을")
+        self.assertEqual(g.call_args.kwargs["params"]["q"], "Parannoul")
+        self.assertIsNotNone(r["url"])
+
     def test_empty_name_skips_the_request(self):
         r, g = self.get({"data": [hit("")]}, "  ")
         self.assertIsNone(r["url"])

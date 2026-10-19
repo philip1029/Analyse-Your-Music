@@ -69,5 +69,34 @@ class BuildMappingTest(unittest.TestCase):
             self.assertEqual(na.load_keep_separate(Path(d) / "missing.txt"), set())
 
 
+class ManualMergeTest(unittest.TestCase):
+    def test_manual_merge_maps_variant_to_given_name(self):
+        stats = {"Parannoul": S(a=592), "파란노을": S(a=193, l=140)}
+        m, groups = {}, []
+        applied = na.apply_manual_merges(m, groups, stats, {"Parannoul": "파란노을"})
+        self.assertEqual((m, applied), ({"Parannoul": "파란노을"}, {"Parannoul"}))
+        self.assertEqual(groups, [("파란노을", ["Parannoul"])])
+
+    def test_manual_merge_needs_both_names_in_data(self):
+        for stats in ({"Parannoul": S(a=5)}, {"파란노을": S(l=5)}):
+            m = {}
+            self.assertEqual(na.apply_manual_merges(m, [], stats, {"Parannoul": "파란노을"}), set())
+            self.assertEqual(m, {})
+
+    def test_manual_merge_follows_automatic_rename_of_target(self):
+        stats = {"X": S(a=1), "Foo Bar": S(a=1), "foo bar": S(l=3)}
+        m, _, _ = na.build_mapping(stats)
+        self.assertEqual(m, {"Foo Bar": "foo bar"})
+        na.apply_manual_merges(m, [], stats, {"X": "Foo Bar"})
+        self.assertEqual(m["X"], "foo bar")
+
+    def test_load_manual_merges_parses_arrows_and_ignores_comments(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "merge.txt"
+            p.write_text("# 주석\n\nA -> B\n bad line\nC->D\nE -> E\n", encoding="utf-8")
+            self.assertEqual(na.load_manual_merges(p), {"A": "B", "C": "D"})
+            self.assertEqual(na.load_manual_merges(Path(d) / "none.txt"), {})
+
+
 if __name__ == "__main__":
     unittest.main()

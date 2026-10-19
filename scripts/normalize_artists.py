@@ -13,6 +13,8 @@ Apple 기록(A)과 Last.fm 기록(L)이 같은 아티스트를 대소문자·띄
   - 통일 이름: 묶음 안에서 L 행에 가장 많이 쓰인 표기 (동률이면 전체 행 수, 그다음 사전순).
     L 행이 하나도 없는 묶음은 Last.fm 표기를 알 수 없으므로 건드리지 않는다.
   - config/artist_keep_separate.txt 에 적힌 이름은 합치기에서 제외한다 (이름 변경도, 통일 이름 후보도 아님).
+  - config/artist_merge.txt 에 "변형 -> 통일 이름"으로 적은 이름은 철자 규칙과 상관없이 수동으로 합친다
+    (예: 같은 아티스트의 한글·영문 표기). 통일 이름은 Last.fm 이 쓰는 표기로 적는다.
   - source 열은 바꾸지 않는다. 기본은 dry-run, --apply 를 주면 백업(.bak_artistnorm_*)을 만들고
     data/artist_normalize_log.csv 에 바뀐 행을 남기며 config/artist_canonical.txt(변형 -> 통일 이름)를
     갱신한다. 제거 기록(preprocess_removed.csv)의 artist 도 같은 규칙으로 맞춘다.
@@ -40,6 +42,7 @@ import preprocess as pp  # noqa: E402  (read_csv / write_csv_atomic 재사용)
 ROOT = SCRIPT_DIR.parent
 KEEP_SEPARATE_FILE = ROOT / "config" / "artist_keep_separate.txt"
 CANONICAL_FILE = ROOT / "config" / "artist_canonical.txt"
+MANUAL_MERGE_FILE = ROOT / "config" / "artist_merge.txt"
 LOG_FIELDS = ["uts", "utc_time", "track", "source", "old_artist", "new_artist", "rule", "changed_at"]
 
 
@@ -56,6 +59,34 @@ def load_keep_separate(path):
             if line and not line.startswith("#"):
                 names.add(line)
     return names
+
+
+def load_manual_merges(path):
+    """'변형 -> 통일 이름' 형식의 수동 합치기 목록. 주석(#)과 빈 줄은 무시한다."""
+    merges = {}
+    if path and Path(path).exists():
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "->" in line:
+                v, c = line.split("->", 1)
+                if v.strip() and c.strip() and v.strip() != c.strip():
+                    merges[v.strip()] = c.strip()
+    return merges
+
+
+def apply_manual_merges(mapping, groups, stats, manual):
+    """수동 목록을 mapping 에 더한다. 데이터에 실제로 있는 이름만, 통일 이름이 이미 다른 이름으로 바뀌면 그쪽을 따른다."""
+    applied = set()
+    for v, c in manual.items():
+        if v not in stats or c not in stats:
+            continue
+        final = mapping.get(c, c)
+        if v == final:
+            continue
+        mapping[v] = final
+        groups.append((final, [v]))
+        applied.add(v)
+    return applied
 
 
 def build_mapping(stats, keep_separate=frozenset()):
@@ -88,6 +119,7 @@ def main():
     ap = argparse.ArgumentParser(description="아티스트 표기를 Last.fm 표기로 통일 (기본 dry-run)")
     ap.add_argument("--data-dir", default=str(pp.DEFAULT_DATA_DIR))
     ap.add_argument("--keep-separate", default=str(KEEP_SEPARATE_FILE))
+    ap.add_argument("--manual-merge", default=str(MANUAL_MERGE_FILE))
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 
@@ -102,6 +134,7 @@ def main():
             stats[r["artist"]][r.get("source", "L")] += 1
     keep = load_keep_separate(args.keep_separate)
     mapping, groups, skipped = build_mapping(stats, keep)
+    manual_applied = apply_manual_merges(mapping, groups, stats, load_manual_merges(args.manual_merge))
 
     changed = Counter()
     for r in rows:
@@ -142,7 +175,8 @@ def main():
         with open(log_path, newline="", encoding="utf-8-sig") as f:
             old_log = list(csv.DictReader(f))
     new_log = [{"uts": r["uts"], "utc_time": r.get("utc_time", ""), "track": r["track"], "source": r.get("source", ""),
-                "old_artist": r["artist"], "new_artist": mapping[r["artist"]], "rule": "case_space_to_lastfm",
+                "old_artist": r["artist"], "new_artist": mapping[r["artist"]],
+                "rule": "manual_merge" if r["artist"] in manual_applied else "case_space_to_lastfm",
                 "changed_at": now} for r in rows if r.get("artist") in mapping]
     pp.write_csv_atomic(csv_path, header, new_rows)
     pp.write_csv_atomic(log_path, LOG_FIELDS, old_log + new_log)
@@ -168,7 +202,7 @@ def main():
                 v, c = line.split("->", 1)
                 merged[v.strip()] = c.strip()
     merged.update(mapping)
-    lines = ["# normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기만 다른 이름)"]
+    lines = ["# normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기 규칙 + config/artist_merge.txt 수동 목록)"]
     lines += [f"{v} -> {c}" for v, c in sorted(merged.items())]
     CANONICAL_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"  반영 완료: {len(new_log)}행 (백업: {backup.name}, 기록: {log_path.name}, 설정: config/{CANONICAL_FILE.name}, "

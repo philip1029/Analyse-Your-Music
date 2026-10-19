@@ -15,7 +15,7 @@ from app.lastfm.album_art import get_album_art
 from app.lastfm.artist_art import get_artist_art
 from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
-from app.analysis.keys import unique_count, key_series
+from app.analysis.keys import unique_count, resolve_keys
 from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
     get_artist_tags_page,
@@ -197,14 +197,17 @@ def music_top(
         for name, count in df["artist"].value_counts().head(limit).items():
             results.append({"name": name, "count": int(count), "artist": None, "_key": name})
     else:
-        # 곡명·앨범명만 같은 다른 아티스트의 항목(Untitled, Eureka 등)이 합쳐지지 않도록 (아티스트, 이름)으로 센다
-        df = df.assign(artist=df["artist"].fillna(""))
-        counts = df.groupby(["artist", column]).size().sort_values(ascending=False, kind="stable").head(limit)
-        for (artist, name), count in counts.items():
-            item = {"name": name, "count": int(count), "artist": artist or None, "_key": f"{artist} - {name}" if artist else name}
+        # 곡명·앨범명만 같은 다른 아티스트의 항목(Untitled, Eureka 등)은 따로, 같은 앨범의 크레딧 표기 차이는 합쳐서 센다
+        keys, reps = resolve_keys(df, column)
+        df = df.assign(_key=keys, _rep=reps)
+        counts = df.groupby("_key").size().sort_values(ascending=False, kind="stable").head(limit)
+        for key, count in counts.items():
+            rows = df[df["_key"] == key]
+            rep = rows["_rep"].iloc[0]
+            item = {"name": rows[column].iloc[0], "count": int(count), "artist": rep or None, "_key": key}
             if column == "track":
                 # 커버용: 이 곡이 가장 많이 기록된 앨범
-                albums = df[(df["track"] == name) & (df["artist"] == artist)]["album"]
+                albums = rows["album"]
                 albums = albums[albums.notna() & (albums != "")]
                 item["album"] = albums.value_counts().index[0] if len(albums) else None
             results.append(item)

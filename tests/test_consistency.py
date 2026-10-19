@@ -82,6 +82,13 @@ class ComputeTest(unittest.TestCase):
         strict = compute_consistency(self.frame(), "track", min_plays=10, min_months=12)
         self.assertEqual([r["key"] for r in strict["results"]], ["A - Steady", "A - Early"])   # 2월에 시작한 Burst 는 11개월이라 제외
 
+    def test_track_results_carry_their_most_played_album(self):
+        df = self.frame()
+        df.loc[df["track"] == "Steady", "album"] = "Album S"
+        df.loc[(df["track"] == "Steady") & (df["artist"] == "A") & (df.index % 5 == 0), "album"] = "Single S"
+        res = compute_consistency(df, "track", min_plays=10, min_months=6)
+        self.assertEqual({r["key"]: r.get("album") for r in res["results"]}["A - Steady"], "Album S")
+
     def test_empty_frame(self):
         res = compute_consistency(pd.DataFrame(columns=["utc_time", "artist", "album", "track"]), "track")
         self.assertEqual(res["results"], [])

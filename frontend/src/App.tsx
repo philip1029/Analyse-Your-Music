@@ -106,7 +106,7 @@ type TopItem = {
   consistency?: Consistency | null;
 };
 
-type ConsistencyItem = Consistency & { key: string; name: string; artist: string | null };
+type ConsistencyItem = Consistency & { key: string; name: string; artist: string | null; album?: string | null };
 
 type ConsistencyResult = {
   category: "artist" | "track" | "album";
@@ -761,6 +761,9 @@ const handleCopyPrompt = () => {
   const [topTracks, setTopTracks] = useState<TopItem[]>([]);
   const [topAlbums, setTopAlbums] = useState<TopItem[]>([]);
   const [topMonths, setTopMonths] = useState<string[]>([]);
+  // Top 10 기준: 재생 많은 순 / 월별로 고르게(꾸준히) 들은 순
+  const [topMode, setTopMode] = useState<"plays" | "even">("plays");
+  const [evenTop, setEvenTop] = useState<{ artist: TopItem[]; track: TopItem[]; album: TopItem[]; months: string[] } | null>(null);
 
   const [consCategory, setConsCategory] = useState<"artist" | "track" | "album">("track");
   const [consSort, setConsSort] = useState<"even" | "biased">("even");
@@ -814,6 +817,30 @@ const handleCopyPrompt = () => {
     },
     [buildQuery]
   );
+
+  useEffect(() => {
+    if (activeTab !== "music" || topMode !== "even") return;
+    let cancelled = false;
+    const load = (category: "artist" | "track" | "album") =>
+      fetch(
+        `${BASE_URL}/api/music/consistency${buildQuery({ category, sort: "even", min_plays: consMinPlays, min_months: consMinMonths, limit: 10 })}`
+      )
+        .then((res) => res.json())
+        .then((data: ConsistencyResult) => ({
+          months: data.months ?? [],
+          items: (data.results ?? []).map(
+            (r): TopItem => ({ name: r.name, count: r.plays, artist: r.artist, album: r.album ?? null, consistency: r })
+          ),
+        }));
+    Promise.all([load("artist"), load("track"), load("album")])
+      .then(([a, t, al]) => {
+        if (!cancelled) setEvenTop({ artist: a.items, track: t.items, album: al.items, months: a.months });
+      })
+      .catch((err) => setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, topMode, consMinPlays, consMinMonths, buildQuery]);
 
   useEffect(() => {
     if (activeTab !== "consistency") return;
@@ -1049,6 +1076,11 @@ const handleCopyPrompt = () => {
 
   if (error) return <div>에러 발생: {error}</div>;
   if (!stats) return <div>불러오는 중...</div>;
+
+  const shownTop =
+    topMode === "even" && evenTop
+      ? evenTop
+      : { artist: topArtists, track: topTracks, album: topAlbums, months: topMonths };
 
   return (
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
@@ -1325,17 +1357,37 @@ const handleCopyPrompt = () => {
       {activeTab === "music" && (
         <>
           <h2>Top 10</h2>
+          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", marginBottom: "0.5rem" }}>
+            {([
+              ["plays", "많이 들은 순"],
+              ["even", "꾸준히 들은 순"],
+            ] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                onClick={() => setTopMode(mode)}
+                style={{ padding: "0.4rem 0.9rem", fontWeight: topMode === mode ? "bold" : "normal", border: topMode === mode ? "2px solid #8884d8" : "1px solid #666" }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {topMode === "even" && (
+            <p style={{ color: "#888", fontSize: "0.85rem", textAlign: "center", marginTop: 0 }}>
+              {consMinPlays}회 이상, {consMinMonths}개월 이상에 걸쳐 들은 항목 중 월별 재생이 가장 고른 순입니다. 기준은 Consistency 탭에서 바꿀 수 있어요.
+              {!evenTop && " 불러오는 중..."}
+            </p>
+          )}
           <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 250 }}>
               <h3>Artists</h3>
               <ol style={{ paddingLeft: "1.6rem" }}>
-                {topArtists.map((item, i) => (
+                {shownTop.artist.map((item, i) => (
                   <li key={i} style={{ marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                       <Cover kind="artist" artist={item.name} />
                       <span style={{ textAlign: "left" }}>
                         {item.name} <span style={{ color: "#888" }}>({item.count}회)</span>
-                        <ConsistencyLine c={item.consistency} months={topMonths} />
+                        <ConsistencyLine c={item.consistency} months={shownTop.months} />
                       </span>
                     </div>
                   </li>
@@ -1346,7 +1398,7 @@ const handleCopyPrompt = () => {
             <div style={{ flex: 1, minWidth: 250 }}>
               <h3>Tracks</h3>
               <ol style={{ paddingLeft: "1.6rem" }}>
-                {topTracks.map((item, i) => (
+                {shownTop.track.map((item, i) => (
                   <li key={i} style={{ marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                       <Cover kind="album" artist={item.artist} album={item.album} />
@@ -1354,7 +1406,7 @@ const handleCopyPrompt = () => {
                         {item.name}
                         {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
                         <span style={{ color: "#888" }}>({item.count}회)</span>
-                        <ConsistencyLine c={item.consistency} months={topMonths} />
+                        <ConsistencyLine c={item.consistency} months={shownTop.months} />
                       </span>
                     </div>
                   </li>
@@ -1365,7 +1417,7 @@ const handleCopyPrompt = () => {
             <div style={{ flex: 1, minWidth: 250 }}>
               <h3>Albums</h3>
               <ol style={{ paddingLeft: "1.6rem" }}>
-                {topAlbums.map((item, i) => (
+                {shownTop.album.map((item, i) => (
                   <li key={i} style={{ marginBottom: "0.5rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                       <Cover kind="album" artist={item.artist} album={item.name} />
@@ -1373,7 +1425,7 @@ const handleCopyPrompt = () => {
                         {item.name}
                         {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
                         <span style={{ color: "#888" }}>({item.count}회)</span>
-                        <ConsistencyLine c={item.consistency} months={topMonths} />
+                        <ConsistencyLine c={item.consistency} months={shownTop.months} />
                       </span>
                     </div>
                   </li>
@@ -1429,9 +1481,11 @@ const handleCopyPrompt = () => {
                 {consData.results.map((item) => (
                   <li key={item.key} style={{ marginBottom: "0.7rem" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
-                      {consData.category !== "track" ? (
-                        <Cover kind={consData.category} artist={consData.category === "artist" ? item.name : item.artist} album={item.name} />
-                      ) : null}
+                      {consData.category === "artist" ? (
+                        <Cover kind="artist" artist={item.name} />
+                      ) : (
+                        <Cover kind="album" artist={item.artist} album={consData.category === "track" ? item.album : item.name} />
+                      )}
                       <div style={{ minWidth: 220, flex: 1 }}>
                         <div>
                           {item.name}

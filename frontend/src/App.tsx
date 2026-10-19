@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react";
 import {
   BarChart,
   Bar,
@@ -41,6 +41,7 @@ type DiscoverySummary = {
 type DiscoveryItem = {
   name: string;
   artist: string | null;
+  album?: string | null;
   first_listened: string;
 };
 
@@ -86,6 +87,7 @@ type TopItem = {
   name: string;
   count: number;
   artist: string | null;
+  album?: string | null;
 };
 
 type DateRange = {
@@ -146,6 +148,77 @@ function yearRange(year: number): DateRange {
 }
 
 const BASE_URL = "http://localhost:8000";
+
+// 같은 커버를 여러 번 요청하지 않도록 세션 동안 결과를 기억한다 (null = 커버 없음)
+const coverMemo = new Map<string, Promise<string | null>>();
+
+function fetchCover(path: string): Promise<string | null> {
+  let pending = coverMemo.get(path);
+  if (!pending) {
+    pending = fetch(`${BASE_URL}${path}`)
+      .then((res) => res.json())
+      .then((data) => (data.url as string | null) ?? null)
+      .catch(() => {
+        coverMemo.delete(path); // 일시적 실패는 다음에 다시 시도
+        return null;
+      });
+    coverMemo.set(path, pending);
+  }
+  return pending;
+}
+
+// 앨범 커버(Last.fm) 또는 아티스트 사진(Deezer). 없으면 회색 칸에 첫 글자를 보여 준다.
+function Cover({
+  kind,
+  artist,
+  album,
+  size = 48,
+}: {
+  kind: "album" | "artist";
+  artist: string | null;
+  album?: string | null;
+  size?: number;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setUrl(null);
+    setFailed(false);
+    let path: string | null = null;
+    if (kind === "artist" && artist) path = `/api/artist-art?artist=${encodeURIComponent(artist)}`;
+    if (kind === "album" && artist && album) path = `/api/album-art?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`;
+    if (path) {
+      fetchCover(path).then((u) => {
+        if (!cancelled) setUrl(u);
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, artist, album]);
+
+  const label = kind === "artist" ? artist : album;
+  const box: CSSProperties = {
+    width: size,
+    height: size,
+    flexShrink: 0,
+    borderRadius: kind === "artist" ? "50%" : 4,
+    background: "#e6e6e6",
+    color: "#999",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: size * 0.4,
+    overflow: "hidden",
+  };
+
+  if (url && !failed) {
+    return <img src={url} alt={label ?? ""} width={size} height={size} loading="lazy" onError={() => setFailed(true)} style={{ ...box, objectFit: "cover" }} />;
+  }
+  return <div style={box}>{label ? Array.from(label)[0] : "♪"}</div>;
+}
 
 function YearHeatmap({
   year,
@@ -1157,10 +1230,15 @@ const handleCopyPrompt = () => {
           <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 250 }}>
               <h3>Artists</h3>
-              <ol>
+              <ol style={{ paddingLeft: "1.6rem" }}>
                 {topArtists.map((item, i) => (
-                  <li key={i}>
-                    {item.name} <span style={{ color: "#888" }}>({item.count}회)</span>
+                  <li key={i} style={{ marginBottom: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <Cover kind="artist" artist={item.name} />
+                      <span>
+                        {item.name} <span style={{ color: "#888" }}>({item.count}회)</span>
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -1168,12 +1246,17 @@ const handleCopyPrompt = () => {
 
             <div style={{ flex: 1, minWidth: 250 }}>
               <h3>Tracks</h3>
-              <ol>
+              <ol style={{ paddingLeft: "1.6rem" }}>
                 {topTracks.map((item, i) => (
-                  <li key={i}>
-                    {item.name}
-                    {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
-                    <span style={{ color: "#888" }}>({item.count}회)</span>
+                  <li key={i} style={{ marginBottom: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <Cover kind="album" artist={item.artist} album={item.album} />
+                      <span>
+                        {item.name}
+                        {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
+                        <span style={{ color: "#888" }}>({item.count}회)</span>
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -1181,12 +1264,17 @@ const handleCopyPrompt = () => {
 
             <div style={{ flex: 1, minWidth: 250 }}>
               <h3>Albums</h3>
-              <ol>
+              <ol style={{ paddingLeft: "1.6rem" }}>
                 {topAlbums.map((item, i) => (
-                  <li key={i}>
-                    {item.name}
-                    {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
-                    <span style={{ color: "#888" }}>({item.count}회)</span>
+                  <li key={i} style={{ marginBottom: "0.5rem" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                      <Cover kind="album" artist={item.artist} album={item.name} />
+                      <span>
+                        {item.name}
+                        {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
+                        <span style={{ color: "#888" }}>({item.count}회)</span>
+                      </span>
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -1222,12 +1310,17 @@ const handleCopyPrompt = () => {
           </ResponsiveContainer>
 
           <h3>최근 발견한 곡</h3>
-          <ol>
+          <ol style={{ paddingLeft: "1.6rem" }}>
             {discoveryTimeline.map((item, i) => (
-              <li key={i}>
-                {item.name}
-                {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
-                <span style={{ color: "#888" }}>({item.first_listened})</span>
+              <li key={i} style={{ marginBottom: "0.5rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+                  <Cover kind="album" artist={item.artist} album={item.album} />
+                  <span>
+                    {item.name}
+                    {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
+                    <span style={{ color: "#888" }}>({item.first_listened})</span>
+                  </span>
+                </div>
               </li>
             ))}
           </ol>

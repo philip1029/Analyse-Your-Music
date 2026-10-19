@@ -54,10 +54,14 @@ def get_discovery_timeline(df: pd.DataFrame, category: str = "track", limit: int
         artist_value = row["artist"] if column != "artist" else None
         if artist_value is not None and pd.isna(artist_value):
             artist_value = None
+        album_value = row["album"] if column == "track" else None
+        if album_value is not None and (pd.isna(album_value) or album_value == ""):
+            album_value = None
         results.append(
             {
                 "name": row[column],
                 "artist": artist_value,
+                "album": album_value,
                 "first_listened": row["datetime_kst"].strftime("%Y-%m-%d %H:%M"),
             }
         )

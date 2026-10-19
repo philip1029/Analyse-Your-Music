@@ -11,6 +11,8 @@ from app.analysis.ai_prompt import build_ai_prompt
 from app.analysis.ai_prompt_period import build_period_prompt, list_periods
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.lastfm.client import invalidate_aliased_cache
+from app.lastfm.album_art import get_album_art
+from app.lastfm.artist_art import get_artist_art
 from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
 from app.analysis.taste import (
@@ -192,13 +194,17 @@ def music_top(
     results = []
     for name, count in top_counts.items():
         first_match = df[df[column] == name].iloc[0]
-        results.append(
-            {
-                "name": name,
-                "count": int(count),
-                "artist": first_match["artist"] if column != "artist" else None,
-            }
-        )
+        item = {
+            "name": name,
+            "count": int(count),
+            "artist": first_match["artist"] if column != "artist" else None,
+        }
+        if column == "track":
+            # 커버용: 이 곡(같은 아티스트)이 가장 많이 기록된 앨범
+            albums = df[(df[column] == name) & (df["artist"] == first_match["artist"])]["album"]
+            albums = albums[albums.notna() & (albums != "")]
+            item["album"] = albums.value_counts().index[0] if len(albums) else None
+        results.append(item)
 
     return {"category": category, "results": results}
 
@@ -349,6 +355,21 @@ def debug_empty_album():
 def cache_invalidate_aliases():
     deleted = invalidate_aliased_cache()
     return {"deleted_files": deleted, "count": len(deleted)}
+
+@app.get("/api/album-art")
+def album_art(artist: str = "", album: str = ""):
+    """앨범 커버 주소를 반환한다 (Last.fm album.getInfo, 디스크 캐시). 없으면 url 이 null."""
+    api_key = os.environ.get("LASTFM_API_KEY")
+    if not api_key:
+        return {"url": None, "error": "LASTFM_API_KEY가 설정되지 않았습니다."}
+    return get_album_art(artist, album, api_key)
+
+
+@app.get("/api/artist-art")
+def artist_art(artist: str = ""):
+    """아티스트 사진 주소를 반환한다 (Last.fm 은 사진을 주지 않아 Deezer 검색, 디스크 캐시). 없으면 url 이 null."""
+    return get_artist_art(artist)
+
 
 @app.get("/api/discovery/summary")
 def discovery_summary(start: str | None = None, end: str | None = None):

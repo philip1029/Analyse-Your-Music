@@ -25,4 +25,5 @@ python3 scripts/preprocess.py --apply --apple-dir "<Apple Music Activity 폴더>
 - 곡 길이 조회 순서: 애플 로그 / 라이브러리 XML → last.fm `track.getInfo`(곡당 1회, `data/preprocess_durations.json`에 캐시). 허용 오차 ±2초.
 - 새 애플 데이터를 받아 `--apple-dir`로 다시 돌리면 `provisional:*`로 지운 행을 되살려 로그로 재판정한다.
 - 지운 행은 `data/preprocess_removed.csv`에 이유/근거와 함께 남는다. 처리 위치는 `data/preprocess_state.json`.
+- 빈 artist 채우기(`scripts/fill_missing_artists.py`): 스트리밍으로만 들어 라이브러리에 없는 A 소스 곡의 아티스트를 애플 `Play History Daily Tracks.csv`의 "아티스트 - 곡명"으로 채운다(곡명이 한 아티스트에만 대응할 때만). dry-run 기본, `--apply` 시 백업과 `data/artist_fill_log.csv` 기록. 수동 지정은 `--set "곡명=아티스트"`, `--set-album "곡명=앨범"`. `--album-unique`를 주면 그래도 빈 행을 같은 앨범의 다른 행에 아티스트가 정확히 한 명뿐일 때 그 아티스트로 채운다(규칙 이름 `album_unique`; 컴필레이션이면 틀릴 수 있다).
 - 한계: 이미 확정된 구간을 다시 훑으면 1차 판정이 놓친 잔여분이 소수(8행 수준) 더 걸릴 수 있다. 확정 구간은 다시 훑지 않는 것이 정상 흐름이다.

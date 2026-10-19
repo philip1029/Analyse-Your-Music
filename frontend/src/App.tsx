@@ -771,10 +771,29 @@ const handleCopyPrompt = () => {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          setRefreshMessage("업데이트 완료! 잠시 후 새로고침됩니다...");
+          // 새로 받은 기록에 적용된 전처리(가짜/중복 스크로블 정리) 결과를 함께 보여준다.
+          const added = /새로 추가된 곡: (\d+)개/.exec(data.output ?? "")?.[1];
+          const pre = data.preprocess as
+            | { error?: string; removed?: number; pending?: Record<string, number> }
+            | null
+            | undefined;
+          const parts: string[] = [];
+          if (added) parts.push(`새 스크로블 ${added}개`);
+          if (pre?.error) {
+            parts.push(`전처리 실패: ${pre.error}`);
+          } else if (pre) {
+            if (pre.removed) parts.push(`가짜/중복 의심 ${pre.removed}행 정리`);
+            const pendingCount = Object.values(pre.pending ?? {}).reduce((a, b) => a + b, 0);
+            if (pendingCount) parts.push(`보류 ${pendingCount}건(지우지 않음)`);
+          }
+          setRefreshMessage(
+            `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
+          );
+          // 정리된 행이 있거나 전처리가 실패했을 때는 결과를 읽을 시간을 더 준다.
+          const needsTime = Boolean(pre?.error || pre?.removed);
           setTimeout(() => {
             window.location.reload();
-          }, 1000);
+          }, needsTime ? 4000 : 1000);
         } else {
           setRefreshMessage(`실패: ${data.error}`);
           setRefreshing(false);

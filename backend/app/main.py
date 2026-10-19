@@ -189,22 +189,35 @@ def music_top(
     column = column_map[category]
     df = df[df[column].notna() & (df[column] != "")]
 
-    top_counts = df[column].value_counts().head(limit)
-
     results = []
+    if column == "track":
+        # 곡명만 같고 아티스트가 다른 곡(예: Untitled, Intro)이 한 곡으로 합쳐지지 않도록 (아티스트, 곡명)으로 센다
+        df = df.assign(artist=df["artist"].fillna(""))
+        counts = df.groupby(["artist", "track"]).size().sort_values(ascending=False, kind="stable").head(limit)
+        for (artist, name), count in counts.items():
+            # 커버용: 이 곡이 가장 많이 기록된 앨범
+            albums = df[(df["track"] == name) & (df["artist"] == artist)]["album"]
+            albums = albums[albums.notna() & (albums != "")]
+            results.append(
+                {
+                    "name": name,
+                    "count": int(count),
+                    "artist": artist or None,
+                    "album": albums.value_counts().index[0] if len(albums) else None,
+                }
+            )
+        return {"category": category, "results": results}
+
+    top_counts = df[column].value_counts().head(limit)
     for name, count in top_counts.items():
         first_match = df[df[column] == name].iloc[0]
-        item = {
-            "name": name,
-            "count": int(count),
-            "artist": first_match["artist"] if column != "artist" else None,
-        }
-        if column == "track":
-            # 커버용: 이 곡(같은 아티스트)이 가장 많이 기록된 앨범
-            albums = df[(df[column] == name) & (df["artist"] == first_match["artist"])]["album"]
-            albums = albums[albums.notna() & (albums != "")]
-            item["album"] = albums.value_counts().index[0] if len(albums) else None
-        results.append(item)
+        results.append(
+            {
+                "name": name,
+                "count": int(count),
+                "artist": first_match["artist"] if column != "artist" else None,
+            }
+        )
 
     return {"category": category, "results": results}
 

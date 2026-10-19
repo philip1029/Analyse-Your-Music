@@ -50,7 +50,9 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
     last_date = df["datetime_kst"].max().strftime("%Y-%m-%d")
 
     top_artists = _top_n(df, "artist", 10)
-    top_tracks = _top_n(df, "track", 10)
+    # 곡명만 같은 다른 아티스트의 곡(Untitled 등)이 합쳐지지 않도록 "아티스트 - 곡명"으로 센다
+    track_df = df.assign(track_key=df.apply(lambda r: f"{r['artist']} - {r['track']}" if pd.notna(r["artist"]) and r["artist"] != "" else r["track"], axis=1))
+    top_tracks = _top_n(track_df, "track_key", 10)
     top_albums = _top_n(df, "album", 10)
 
     diversity = compute_diversity(df)

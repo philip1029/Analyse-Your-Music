@@ -1,0 +1,4 @@
+# normalize_artists.py 가 합치지 않을 아티스트 표기 (정확히 일치하는 이름, 한 줄에 하나)
+# 대소문자만 달라도 서로 다른 표기로 그대로 둔다.
+LIA & VISUAL ARTS / Key
+Lia & VISUAL ARTS / Key

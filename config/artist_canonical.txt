@@ -1,0 +1,32 @@
+# normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기만 다른 이름)
+Angine de poitrine -> Angine de Poitrine
+Apistat Commander -> apistat commander
+Biglietto per l'inferno -> Biglietto per l'Inferno
+Christtt -> christtt
+DJ Spooky That Subliminal Kid -> DJ Spooky that Subliminal Kid
+Dgohn -> dgoHn
+Ecco2k -> Ecco2K
+Ex Eye -> EX EYE
+Explosions In the Sky -> Explosions in the Sky
+Goreshit -> goreshit
+Have A Nice Life -> Have a Nice Life
+LOREN & MASH -> Loren & Mash
+M1dy -> m1dy
+MIDORi -> Midori
+MONOGATARI Series -> Monogatari Series
+OMA -> Oma
+Planning For Burial -> Planning for Burial
+Rovo -> ROVO
+System Of A Down -> System of a Down
+TODAY IS THE DAY -> Today Is The Day
+Van Der Graaf Generator -> Van der Graaf Generator
+XXXTENTACION & Trippie Redd -> xxxtentacion & trippie redd
+halca -> Halca
+intra -> Intra
+moreru -> Moreru
+riya -> Riya
+rukiawaa -> RUKIAWAA
+snafu -> Snafu
+朝比奈みくる (CV.後藤邑子) -> 朝比奈みくる (cv.後藤邑子)
+涼宮ハルヒ (CV.平野 綾) -> 涼宮ハルヒ(cv.平野綾)
+涼宮ハルヒ(CV.平野綾) -> 涼宮ハルヒ(cv.平野綾)

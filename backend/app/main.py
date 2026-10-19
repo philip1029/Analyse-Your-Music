@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -48,6 +49,16 @@ def get_filtered_df(start: str | None, end: str | None) -> pd.DataFrame | None:
     if not csv_files:
         return None
     df = load_csv_safely(csv_files[0])
+    # 애플 뮤직 유래(A) 기록 중 라이브러리에서 아티스트/앨범을 못 찾은 일부 곡은
+    # artist/album/track이 빈 칸으로 저장되어 있는데, pandas가 이를 NaN(float)으로
+    # 읽어들인다. 이 NaN이 그대로 내려가면 문자열 메서드 호출(.lower() 등)에서
+    # AttributeError가 나거나 JSON 직렬화 시 "Out of range float values are not
+    # JSON compliant: nan" 오류가 난다. 실제 분석/화면용 데이터는 여기서 한 번에
+    # 빈 문자열로 정리해서, 이 함수를 쓰는 모든 엔드포인트가 안전하게 문자열로
+    # 다룰 수 있게 한다. (원본 결측치 자체를 보고 싶은 /api/validate,
+    # /api/debug/empty-album은 get_filtered_df를 쓰지 않고 load_csv_safely를
+    # 직접 불러서 원본 NaN을 그대로 본다.)
+    df[["artist", "album", "track"]] = df[["artist", "album", "track"]].fillna("")
     df = df.drop_duplicates(subset=["uts", "artist", "track"], keep="first")
     df = filter_by_date_range(df, start, end)
     return df
@@ -274,7 +285,28 @@ def refresh_scrobbles():
     if result.returncode != 0:
         return {"success": False, "error": result.stderr[-2000:]}
 
-    return {"success": True, "output": result.stdout[-2000:]}
+    # 새로 받은 기록에 전처리(가짜/중복 기록 제거)를 적용한다. 실패해도 새로고침 자체는
+    # 성공으로 둔다 (원본은 백업되고, 지운 행은 data/preprocess_removed.csv 에 남는다).
+    preprocess = None
+    pre_script = script_path.with_name("preprocess.py")
+    try:
+        pre = subprocess.run(
+            ["python3", str(pre_script), "--apply", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if pre.returncode == 0:
+            json_lines = [ln for ln in pre.stdout.splitlines() if ln.startswith("{")]
+            preprocess = json.loads(json_lines[-1]) if json_lines else None
+        else:
+            preprocess = {"error": (pre.stderr or pre.stdout)[-500:]}
+    except subprocess.TimeoutExpired:
+        preprocess = {"error": "전처리 실행 시간 초과"}
+    except Exception as e:  # noqa: BLE001
+        preprocess = {"error": str(e)}
+
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess}
 
 @app.get("/api/taste/evolution")
 def taste_evolution(
@@ -373,6 +405,11 @@ def listening_day(date: str, start: str | None = None, end: str | None = None):
     df["date"] = df["datetime_kst"].dt.strftime("%Y-%m-%d")
 
     day_df = df[df["date"] == date].sort_values("datetime_kst")
+    # artist/album/track에 결측치(NaN)가 있으면 JSON으로 직렬화할 때
+    # "Out of range float values are not JSON compliant: nan" 오류로 500이 남.
+    # (애플 뮤직 유래 기록 중 아티스트를 못 찾은 몇몇 곡이 빈 값 -> NaN으로 읽힘)
+    day_df = day_df.copy()
+    day_df[["artist", "album", "track"]] = day_df[["artist", "album", "track"]].fillna("")
 
     tracks = [
         {

@@ -48,10 +48,16 @@ def get_discovery_timeline(df: pd.DataFrame, category: str = "track", limit: int
 
     results = []
     for _, row in first_seen.iterrows():
+        # artist가 NaN(예: 애플 뮤직 유래 기록 중 아티스트를 못 찾은 곡)이면
+        # JSON 직렬화 시 "Out of range float values are not JSON compliant: nan"
+        # 오류가 나므로 None으로 치환한다.
+        artist_value = row["artist"] if column != "artist" else None
+        if artist_value is not None and pd.isna(artist_value):
+            artist_value = None
         results.append(
             {
                 "name": row[column],
-                "artist": row["artist"] if column != "artist" else None,
+                "artist": artist_value,
                 "first_listened": row["datetime_kst"].strftime("%Y-%m-%d %H:%M"),
             }
         )

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from app.analysis.ai_prompt import build_ai_prompt
+from app.analysis.ai_prompt_period import build_period_prompt, list_periods
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.lastfm.client import invalidate_aliased_cache
 from app.analysis.validation import validate_csv
@@ -441,3 +442,27 @@ def ai_prompt(start: str | None = None, end: str | None = None):
 
     prompt_text = build_ai_prompt(df)
     return {"prompt": prompt_text}
+
+
+@app.get("/api/ai-prompt/periods")
+def ai_prompt_periods(period: str = "month"):
+    """월간/주간 프롬프트에서 고를 수 있는 기간 목록 (최신순)."""
+    if period not in ("month", "week"):
+        return {"error": "period 는 month 또는 week 여야 합니다."}
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return {"periods": list_periods(df, period)}
+
+
+@app.get("/api/ai-prompt/period")
+def ai_prompt_period(period: str = "month", anchor: str | None = None):
+    """한 달(YYYY-MM) 또는 한 주(그 주의 아무 날짜 YYYY-MM-DD) 기준 분석 프롬프트.
+    anchor 를 생략하면 기록이 있는 가장 최근 기간. 날짜 필터는 적용하지 않는다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    try:
+        return build_period_prompt(df, period, anchor)
+    except ValueError as e:
+        return {"error": str(e)}

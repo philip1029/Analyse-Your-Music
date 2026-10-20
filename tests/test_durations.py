@@ -3,6 +3,7 @@
 """
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -121,6 +122,47 @@ class CacheAndLookupTest(unittest.TestCase):
             with zipfile.ZipFile(Path(tmp) / "Apple Music Library Tracks.json.zip", "w") as z:
                 z.writestr("Apple Music Library Tracks.json", json.dumps(tracks))
             self.assertEqual(d.load_apple_durations(tmp).get_pair("pink floyd", "money"), 382)
+
+
+SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "fill_durations.py"
+
+
+class FillScriptCliTest(unittest.TestCase):
+    """최신 스크롭 불러오기 버튼이 부르는 형태(--json --limit)를 임시 data 폴더로 확인한다 (네트워크 없음)."""
+
+    def run_cli(self, tmp, *flags):
+        env = {k: v for k, v in __import__("os").environ.items() if k != "LASTFM_API_KEY"}
+        return subprocess.run([sys.executable, str(SCRIPT), "--data-dir", tmp, *flags], capture_output=True, text=True, timeout=60, env={**env, "HOME": tmp})
+
+    def write_csv(self, tmp, rows):
+        header = "uts,utc_time,artist,album,track,source\n"
+        (Path(tmp) / "u_scrobbles.csv").write_text(header + "".join(f"{i},2026-01-01 00:00:0{i},{a},{al},{t},L\n" for i, (a, al, t) in enumerate(rows, 1)), encoding="utf-8")
+
+    def test_nothing_to_do_needs_no_api_key_and_reports_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_csv(tmp, [("A", "Al", "Song")])
+            d.save_cache(Path(tmp) / d.CACHE_NAME, {d.cache_key("A", "Song"): {"sec": 200, "src": "lastfm", "tried": 1}})
+            out = self.run_cli(tmp, "--json", "--limit", "60")
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertEqual(json.loads(out.stdout.strip().splitlines()[-1]), {"found": 0, "unknown": 0, "skipped": 0, "remaining": 0})
+
+    def test_dry_run_json_does_not_touch_the_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_csv(tmp, [("A", "Al", "Song")])
+            out = self.run_cli(tmp, "--dry-run", "--json")
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertFalse((Path(tmp) / d.CACHE_NAME).exists())
+
+    def test_track_pairs_are_ordered_by_plays(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("fill_durations", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(SCRIPT.parent))
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as tmp:
+            self.write_csv(tmp, [("A", "Al", "Old"), ("A", "Al", "Old"), ("A", "Al", "Old"), ("A", "Al", "New")])
+            pairs = mod.track_pairs(Path(tmp) / "u_scrobbles.csv")
+        self.assertEqual([t for _, t, _ in pairs], ["Old", "New"])           # 재생 많은 순
 
 
 if __name__ == "__main__":

@@ -13,12 +13,14 @@ fill_durations.py
 ------
     python3 scripts/fill_durations.py --dry-run            # 네트워크 없이 규모만 확인
     python3 scripts/fill_durations.py                      # 전체 (약 30~40분, 이어서 실행 가능)
-    python3 scripts/fill_durations.py --limit 200          # 일부만
+    python3 scripts/fill_durations.py --limit 200          # 일부만 (최신 스크롭 불러오기 버튼은 새 곡만 소량씩 이 옵션으로 실행)
+    python3 scripts/fill_durations.py --json --limit 60    # 결과를 JSON 한 줄로
     python3 scripts/fill_durations.py --apple-dir "<Apple Music Activity 폴더>"
 환경변수: LASTFM_API_KEY (.env 도 읽음), APPLE_ACTIVITY_DIR (--apple-dir 기본값)
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -63,6 +65,7 @@ def main():
     ap.add_argument("--no-search", action="store_true", help="Last.fm track.search 단계를 건너뜀")
     ap.add_argument("--retry-unknown", action="store_true", help="못 찾은 곡도 기간과 상관없이 다시 시도")
     ap.add_argument("--dry-run", action="store_true", help="네트워크 없이 규모만 보여 줌")
+    ap.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로만 출력")
     args = ap.parse_args()
 
     data_dir = Path(args.data_dir)
@@ -77,11 +80,19 @@ def main():
     now = time.time()
     retry_days = 0 if args.retry_unknown else dur.RETRY_UNKNOWN_DAYS
     todo = [(a, t, n) for a, t, n in pairs if dur.needs_lookup(cache.get(dur.cache_key(a, t)), now, retry_days)]
+    # 한 번도 조회하지 않은 새 곡을 먼저, 그다음 재시도 대상(못 찾았던 곡)을 재생 많은 순으로
+    todo.sort(key=lambda x: (dur.cache_key(x[0], x[1]) in cache, -x[2]))
     known = sum(1 for a, t, _ in pairs if (cache.get(dur.cache_key(a, t)) or {}).get("sec"))
-    print(f"곡 {len(pairs)}개 · 길이 알고 있음 {known}개 · 이번에 조회할 곡 {len(todo)}개 · Apple 내보내기 {'사용' if apple else '없음'}")
+    say = (lambda *_a, **_k: None) if args.json else print
+    say(f"곡 {len(pairs)}개 · 길이 알고 있음 {known}개 · 이번에 조회할 곡 {len(todo)}개 · Apple 내보내기 {'사용' if apple else '없음'}")
+    total_todo = len(todo)
+    if not todo:                                 # 할 일이 없으면 API 키도, 네트워크도 필요 없다
+        if args.json:
+            print(json.dumps({"found": 0, "unknown": 0, "skipped": 0, "remaining": 0}))
+        return
     if args.dry_run:
         offline = sum(1 for a, t, _ in todo if apple and apple.get_pair(a, t))
-        print(f"(dry-run) 조회 대상 중 Apple 내보내기(아티스트+곡명 일치)만으로 채울 수 있는 곡 {offline}개. 나머지 {len(todo) - offline}개는 Last.fm 호출(곡당 1~3회).")
+        say(f"(dry-run) 조회 대상 중 Apple 내보내기(아티스트+곡명 일치)만으로 채울 수 있는 곡 {offline}개. 나머지 {len(todo) - offline}개는 Last.fm 호출(곡당 1~3회).")
         return
 
     api_key = load_env_key()
@@ -101,11 +112,14 @@ def main():
                 found, unknown = (found + 1, unknown) if res["sec"] else (found, unknown + 1)
             if i % 100 == 0:
                 dur.save_cache(cache_path, cache)
-                print(f"  {i}/{len(todo)} — 찾음 {found}, 못 찾음 {unknown}, 오류로 보류 {skipped} (Last.fm 호출 {client.calls})", flush=True)
+                say(f"  {i}/{len(todo)} — 찾음 {found}, 못 찾음 {unknown}, 오류로 보류 {skipped} (Last.fm 호출 {client.calls})", flush=True)
     except KeyboardInterrupt:
-        print("\n중단합니다. 지금까지의 결과를 저장합니다.")
+        say("\n중단합니다. 지금까지의 결과를 저장합니다.")
     dur.save_cache(cache_path, cache)
-    print(f"완료: 찾음 {found}, 못 찾음 {unknown}, 오류로 보류 {skipped} · 저장: {cache_path.name}")
+    if args.json:
+        print(json.dumps({"found": found, "unknown": unknown, "skipped": skipped, "remaining": max(0, total_todo - len(todo))}))
+    else:
+        print(f"완료: 찾음 {found}, 못 찾음 {unknown}, 오류로 보류 {skipped} · 저장: {cache_path.name}")
 
 
 if __name__ == "__main__":

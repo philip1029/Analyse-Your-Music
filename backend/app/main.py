@@ -302,6 +302,9 @@ def validate():
     return result
 
 
+FILL_LIMIT = 60   # 새로고침 한 번에 길이를 조회할 최대 곡 수
+
+
 @app.post("/api/refresh")
 def refresh_scrobbles():
     username = os.environ.get("USERNAME")
@@ -365,7 +368,28 @@ def refresh_scrobbles():
     except Exception as e:  # noqa: BLE001
         titles = {"error": str(e)}
 
-    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "titles": titles}
+    # 새로 생긴 곡의 길이를 채운다 (이미 아는 곡은 건너뛰고, 한 번에 FILL_LIMIT 곡까지만 해서 버튼이 오래 걸리지 않게
+    # 한다. 남은 곡은 다음에 불러올 때 이어서 한다). 길이를 못 찾아도 새로고침은 성공이다.
+    durations_result = None
+    dur_script = script_path.with_name("fill_durations.py")
+    try:
+        dur_run = subprocess.run(
+            ["python3", str(dur_script), "--json", "--limit", str(FILL_LIMIT)],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        if dur_run.returncode == 0:
+            json_lines = [ln for ln in dur_run.stdout.splitlines() if ln.startswith("{")]
+            durations_result = json.loads(json_lines[-1]) if json_lines else None
+        else:
+            durations_result = {"error": (dur_run.stderr or dur_run.stdout)[-300:]}
+    except subprocess.TimeoutExpired:
+        durations_result = {"error": "곡 길이 조회 시간 초과 (다음에 이어서 합니다)"}
+    except Exception as e:  # noqa: BLE001
+        durations_result = {"error": str(e)}
+
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "titles": titles, "durations": durations_result}
 
 @app.get("/api/taste/evolution")
 def taste_evolution(

@@ -967,11 +967,18 @@ const handleCopyPrompt = () => {
           } else if (titles && (titles.tracks || titles.albums)) {
             parts.push(`제목 표기 통일 곡 ${titles.tracks ?? 0}행 · 앨범 ${titles.albums ?? 0}행`);
           }
+          // 새 곡의 길이 조회 결과
+          const durs = data.durations as { error?: string; found?: number; unknown?: number; remaining?: number } | null | undefined;
+          if (durs?.error) {
+            parts.push(`곡 길이 조회 실패: ${durs.error}`);
+          } else if (durs && (durs.found || durs.unknown)) {
+            parts.push(`곡 길이 ${durs.found ?? 0}곡 추가${durs.unknown ? ` (못 찾음 ${durs.unknown})` : ""}${durs.remaining ? ` · 남은 ${durs.remaining}곡은 다음에` : ""}`);
+          }
           setRefreshMessage(
             `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
           );
           // 정리된 행이 있거나 전처리·제목 통일이 실패했을 때는 결과를 읽을 시간을 더 준다.
-          const needsTime = Boolean(pre?.error || pre?.removed || titles?.error || titles?.tracks || titles?.albums);
+          const needsTime = Boolean(pre?.error || pre?.removed || titles?.error || titles?.tracks || titles?.albums || durs?.error);
           setTimeout(() => {
             window.location.reload();
           }, needsTime ? 4000 : 1000);

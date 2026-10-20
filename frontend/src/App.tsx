@@ -959,11 +959,18 @@ const handleCopyPrompt = () => {
             const pendingCount = Object.values(pre.pending ?? {}).reduce((a, b) => a + b, 0);
             if (pendingCount) parts.push(`보류 ${pendingCount}건(지우지 않음)`);
           }
+          // 곡/앨범 제목 표기 통일(Apple/Last.fm 대소문자 차이) 결과
+          const titles = data.titles as { error?: string; tracks?: number; albums?: number } | null | undefined;
+          if (titles?.error) {
+            parts.push(`제목 통일 실패: ${titles.error}`);
+          } else if (titles && (titles.tracks || titles.albums)) {
+            parts.push(`제목 표기 통일 곡 ${titles.tracks ?? 0}행 · 앨범 ${titles.albums ?? 0}행`);
+          }
           setRefreshMessage(
             `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
           );
-          // 정리된 행이 있거나 전처리가 실패했을 때는 결과를 읽을 시간을 더 준다.
-          const needsTime = Boolean(pre?.error || pre?.removed);
+          // 정리된 행이 있거나 전처리·제목 통일이 실패했을 때는 결과를 읽을 시간을 더 준다.
+          const needsTime = Boolean(pre?.error || pre?.removed || titles?.error || titles?.tracks || titles?.albums);
           setTimeout(() => {
             window.location.reload();
           }, needsTime ? 4000 : 1000);

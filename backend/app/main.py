@@ -343,7 +343,28 @@ def refresh_scrobbles():
     except Exception as e:  # noqa: BLE001
         preprocess = {"error": str(e)}
 
-    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess}
+    # 전처리 뒤에 곡/앨범 제목 표기를 Last.fm 표기로 통일한다 (Apple 기록의 대소문자 차이로 같은 곡이
+    # 둘로 갈라지는 것을 막는다). 바꿀 행이 없으면 파일을 건드리지 않고, 바꾸면 백업과 기록을 남긴다.
+    titles = None
+    norm_script = script_path.with_name("normalize_titles.py")
+    try:
+        norm = subprocess.run(
+            ["python3", str(norm_script), "--apply", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if norm.returncode == 0:
+            json_lines = [ln for ln in norm.stdout.splitlines() if ln.startswith("{")]
+            titles = json.loads(json_lines[-1]) if json_lines else None
+        else:
+            titles = {"error": (norm.stderr or norm.stdout)[-500:]}
+    except subprocess.TimeoutExpired:
+        titles = {"error": "제목 통일 실행 시간 초과"}
+    except Exception as e:  # noqa: BLE001
+        titles = {"error": str(e)}
+
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "titles": titles}
 
 @app.get("/api/taste/evolution")
 def taste_evolution(

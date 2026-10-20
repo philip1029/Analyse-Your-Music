@@ -111,20 +111,34 @@ def album_detail(df: pd.DataFrame, artist: str | None, name: str) -> dict | None
     }
 
 
-def track_detail(df: pd.DataFrame, artist: str | None, name: str, offset: int = 0, limit: int = 50) -> dict | None:
+def track_detail(df: pd.DataFrame, artist: str | None, name: str, offset: int = 0, limit: int = 50, album: str | None = None) -> dict | None:
+    """
+    곡 하나의 청취 기록. 같은 곡이 여러 앨범(원곡·어레인지 앨범 등)에 들어 있으면 기본은 모두 모아 보여 주고
+    (Last.fm 방식), album 을 주면 그 앨범에서 들은 기록만 보여 준다. albums 에 앨범별 재생 수가 들어 있다.
+    """
     rows = select_rows(df, "track", artist, name)
     if rows.empty:
         return None
     _, reps, names = resolve_all(rows, "track")
     shown, rep = names.iloc[0], reps.iloc[0] or None
+    _, _, alb_names = resolve_all(rows, "album")
+    breakdown = alb_names[alb_names != ""].value_counts()
+    scoped = None
+    if album:
+        rows = rows[alb_names.map(name_key) == name_key(album)]
+        if rows.empty:
+            return None
+        scoped = alb_names[rows.index].iloc[0]
     kst = pd.to_datetime(rows["utc_time"], utc=True, format="mixed").dt.tz_convert("Asia/Seoul")
     rows = rows.assign(_kst=kst).sort_values("_kst", ascending=False, kind="stable")
     page = rows.iloc[offset: offset + limit]
-    album_of = _top_album_per_key(rows, pd.Series("k", index=rows.index), {"k"})
+    album_of = scoped or _top_album_per_key(rows, pd.Series("k", index=rows.index), {"k"}).get("k")
     return {
         "name": shown,
         "artist": rep,
-        "album": album_of.get("k"),
+        "album": album_of,
+        "scope_album": scoped,
+        "albums": [{"name": n, "count": int(c)} for n, c in breakdown.items()],
         "duration": durations.get(rep or "", shown),
         "scrobbles": int(len(rows)),
         "first_played": rows["_kst"].min().strftime("%Y-%m-%d"),

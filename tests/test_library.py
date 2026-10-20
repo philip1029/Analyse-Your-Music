@@ -116,6 +116,23 @@ class CreditClusterDetailTest(unittest.TestCase):
                 d = fn(df, it["artist"], it["name"])
                 self.assertEqual(d["scrobbles"], it["count"], (category, it))
 
+    def test_track_page_can_be_limited_to_one_album(self):
+        df = credit_frame()
+        df = pd.concat([df, pd.DataFrame([{"utc_time": "2026-04-01 00:00:00", "artist": "VISUAL ARTS / Key", "album": "AIR 16 bit Arrangements", "track": "Tori no Uta", "source": "L"}])], ignore_index=True)
+        every = track_detail(df, "VISUAL ARTS / Key", "Tori no Uta")
+        only = track_detail(df, "VISUAL ARTS / Key", "Tori no Uta", album="air OST")
+        self.assertEqual((every["scrobbles"], every["scope_album"]), (8, None))
+        self.assertEqual({a["name"]: a["count"] for a in every["albums"]}, {"Air OST": 7, "AIR 16 bit Arrangements": 1})
+        self.assertEqual((only["scrobbles"], only["scope_album"], only["album"]), (7, "Air OST", "Air OST"))
+        self.assertEqual({p["album"] for p in only["plays"]}, {"Air OST"})
+        self.assertEqual(len(only["albums"]), 2)                      # 앨범별 내역은 범위와 무관하게 전체
+        self.assertIsNone(track_detail(df, "VISUAL ARTS / Key", "Tori no Uta", album="No Such Album"))
+
+    def test_album_scope_count_matches_the_album_page(self):
+        df = credit_frame()
+        top = album_detail(df, "VISUAL ARTS / Key", "Air OST")["tracks"][0]
+        self.assertEqual(track_detail(df, top["artist"], top["name"], album="Air OST")["scrobbles"], top["count"])
+
     def test_artist_page_counts_case_variants_once(self):
         d = artist_detail(credit_frame(), "VISUAL ARTS / Key")
         self.assertEqual((d["tracks_count"], d["tracks"][0]["name"]), (2, "Tori no uta"))

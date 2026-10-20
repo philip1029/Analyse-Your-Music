@@ -21,6 +21,8 @@ type TrackDetail = {
   name: string;
   artist: string | null;
   album: string | null;
+  scope_album: string | null;
+  albums: { name: string; count: number }[];
   duration?: number | null;
   scrobbles: number;
   first_played: string;
@@ -33,7 +35,7 @@ type View =
   | { type: "list"; category: Category }
   | { type: "artist"; name: string }
   | { type: "album"; name: string; artist: string | null }
-  | { type: "track"; name: string; artist: string | null };
+  | { type: "track"; name: string; artist: string | null; album: string | null };   // album: 이 앨범에서 들은 기록만 (앨범 페이지에서 열 때)
 
 const PAGE = 50;
 const PREVIEW = 10;
@@ -87,10 +89,10 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
 
   const go = (v: View) => setStack((s) => [...s, v]);
   const back = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-  const openItem = (kind: Category, it: Item) => {
+  const openItem = (kind: Category, it: Item, scopeToAlbum = false) => {
     if (kind === "artist") go({ type: "artist", name: it.name });
     else if (kind === "album") go({ type: "album", name: it.name, artist: it.artist });
-    else go({ type: "track", name: it.name, artist: it.artist });
+    else go({ type: "track", name: it.name, artist: it.artist, album: scopeToAlbum ? (it.album ?? null) : null });
   };
 
   return (
@@ -120,9 +122,10 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
       {view.type === "album" && <AlbumView key={`${view.artist}|${view.name}`} name={view.name} artist={view.artist} query={query} onOpen={openItem} onArtist={(n) => go({ type: "artist", name: n })} />}
       {view.type === "track" && (
         <TrackView
-          key={`${view.artist}|${view.name}`}
+          key={`${view.artist}|${view.name}|${view.album}`}
           name={view.name}
           artist={view.artist}
+          album={view.album}
           query={query}
           onArtist={(n) => go({ type: "artist", name: n })}
           onAlbum={(n, a) => go({ type: "album", name: n, artist: a })}
@@ -235,7 +238,7 @@ function AlbumView({
   name: string;
   artist: string | null;
   query: (e?: Record<string, string | number>) => string;
-  onOpen: (k: Category, i: Item) => void;
+  onOpen: (k: Category, i: Item, scopeToAlbum?: boolean) => void;
   onArtist: (n: string) => void;
 }) {
   const { data, error } = useFetched<AlbumDetail>(`/api/library/album${query({ name, artist: artist ?? "" })}`, [name, artist, query]);
@@ -254,7 +257,7 @@ function AlbumView({
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Tracks" value={data.tracks_count} />
       </div>
-      <RankSection title="Tracks" items={data.tracks} kind="track" onOpen={(i) => onOpen("track", i)} />
+      <RankSection title="Tracks" items={data.tracks} kind="track" onOpen={(i) => onOpen("track", i, true)} />
     </>
   );
 }
@@ -262,12 +265,14 @@ function AlbumView({
 function TrackView({
   name,
   artist,
+  album,
   query,
   onArtist,
   onAlbum,
 }: {
   name: string;
   artist: string | null;
+  album: string | null;
   query: (e?: Record<string, string | number>) => string;
   onArtist: (n: string) => void;
   onAlbum: (n: string, a: string | null) => void;
@@ -276,11 +281,13 @@ function TrackView({
   const [head, setHead] = useState<TrackDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // 같은 곡이 여러 앨범에 있으면(원곡/어레인지 앨범 등) "이 앨범만"과 "모든 앨범"을 고를 수 있다
+  const [scope, setScope] = useState<string | null>(album);
 
   const load = useCallback(
     (offset: number) => {
       setLoading(true);
-      fetch(`${BASE_URL}/api/library/track${query({ name, artist: artist ?? "", offset, limit: PAGE })}`)
+      fetch(`${BASE_URL}/api/library/track${query({ name, artist: artist ?? "", offset, limit: PAGE, album: scope ?? "" })}`)
         .then((res) => res.json())
         .then((d: TrackDetail & { error?: string }) => {
           if (d.error) return setError(d.error);
@@ -290,12 +297,11 @@ function TrackView({
         .catch((e) => setError(e.message))
         .finally(() => setLoading(false));
     },
-    [name, artist, query]
+    [name, artist, scope, query]
   );
 
   useEffect(() => {
     setPlays([]);
-    setHead(null);
     setError(null);
     load(0);
   }, [load]);
@@ -327,6 +333,23 @@ function TrackView({
         <Stat title="First" value={head.first_played} />
         <Stat title="Last" value={head.last_played} />
       </div>
+      {head.albums.length > 1 && (
+        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1rem" }}>
+          <span style={{ color: "#999", fontSize: "0.85rem" }}>이 곡은 {head.albums.length}개 앨범에 들어 있어요:</span>
+          {[
+            { label: `모든 앨범 (${head.albums.reduce((a, b) => a + b.count, 0)})`, value: null as string | null },
+            ...head.albums.map((a) => ({ label: `${a.name} (${a.count})`, value: a.name as string | null })),
+          ].map((o) => (
+            <button
+              key={o.label}
+              onClick={() => setScope(o.value)}
+              style={{ padding: "0.25rem 0.7rem", fontSize: "0.85rem", fontWeight: scope === o.value ? 700 : 400, border: scope === o.value ? "2px solid #8884d8" : "1px solid #666" }}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
       {plays.map((p, i) => (
         <div key={i} style={{ display: "flex", gap: "1rem", padding: "0.55rem 0.25rem", borderBottom: LINE, alignItems: "baseline" }}>
           <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{head.name}</span>

@@ -436,11 +436,11 @@ def library_album(name: str, artist: str = "", start: str | None = None, end: st
 
 
 @app.get("/api/library/track")
-def library_track(name: str, artist: str = "", offset: int = 0, limit: int = 50, start: str | None = None, end: str | None = None):
+def library_track(name: str, artist: str = "", offset: int = 0, limit: int = 50, album: str = "", start: str | None = None, end: str | None = None):
     df = get_filtered_df(start, end)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
-    return track_detail(df, artist or None, name, max(0, offset), min(max(1, limit), 200)) or {"error": "해당 곡의 기록이 없습니다."}
+    return track_detail(df, artist or None, name, max(0, offset), min(max(1, limit), 200), album or None) or {"error": "해당 곡의 기록이 없습니다."}
 
 
 @app.get("/api/album-art")

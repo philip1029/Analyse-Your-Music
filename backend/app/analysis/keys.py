@@ -47,50 +47,73 @@ def _cluster_artists(counts: dict[str, int]) -> dict[str, str]:
     return rep
 
 
-def resolve_keys(df: pd.DataFrame, column: str) -> tuple[pd.Series, pd.Series]:
+def name_key(name: str) -> str:
+    """이름 비교용 정규화: NFKC, 소문자, 글자·숫자만 남김 (글자·숫자가 없는 이름은 소문자 원문)."""
+    return re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", name).lower()) or name.casefold()
+
+
+def resolve_all(df: pd.DataFrame, column: str) -> tuple[pd.Series, pd.Series, pd.Series]:
     """
-    집계용 (키, 대표 아티스트). 곡명·앨범명만 같은 다른 아티스트의 항목(Untitled, Eureka, Romance 등)은
-    따로 세고, 같은 앨범/곡의 크레딧 표기 차이(VISUAL ARTS / Key 와 LIA & VISUAL ARTS / Key 등)는
-    한 항목으로 합친다. 키는 "대표 아티스트 - 이름". 아티스트 열이면 그대로,
+    집계용 (키, 대표 아티스트, 표시 이름). 곡명·앨범명만 같은 다른 아티스트의 항목(Untitled, Eureka, Romance 등)은
+    따로 세고, 같은 앨범/곡의 크레딧 표기 차이(VISUAL ARTS / Key 와 LIA & VISUAL ARTS / Key 등)와
+    대소문자·띄어쓰기만 다른 제목(Tori no Uta / Tori no uta)은 한 항목으로 합친다.
+    키는 "대표 아티스트 - 표시 이름"이고 표시 이름은 가장 많이 쓰인 표기다. 아티스트 열이면 그대로,
     이름이 비어 있으면 키가 "" (집계에서 제외할 값). 아티스트가 빈 행은 그 이름에서 가장 많이 들은 묶음에 붙인다.
     """
     name = df[column].fillna("").astype(str)
     if column == "artist":
-        return name, name
+        return name, name, name
     artist = df["artist"].fillna("").astype(str)
+    present = name != ""
 
-    pairs = pd.DataFrame({"name": name, "artist": artist})[name != ""].groupby(["name", "artist"]).size().rename("n").reset_index()
-    named = pairs[pairs["artist"] != ""]
-    n_named = named.groupby("name")["artist"].transform("size")
+    nk = name.map({n: name_key(n) for n in pd.unique(name[present])}).fillna("")
+    pairs = pd.DataFrame({"nk": nk, "name": name, "artist": artist})[present]
+
+    # 같은 이름(대소문자·띄어쓰기 무시)의 표시 표기: 가장 많이 쓰인 것
+    spell = (
+        pairs.groupby(["nk", "name"]).size().reset_index(name="n")
+        .sort_values(["n", "name"], ascending=[False, True]).drop_duplicates("nk").set_index("nk")["name"]
+    )
+    names = nk.map(spell).fillna("")
+
+    art = pairs.groupby(["nk", "artist"]).size().rename("n").reset_index()
+    named = art[art["artist"] != ""]
+    n_named = named.groupby("nk")["artist"].transform("size")
 
     # 대부분의 이름은 아티스트가 하나뿐이라 묶음 계산이 필요 없다 (그 아티스트가 곧 대표)
-    single = named[n_named == 1].set_index("name")["artist"]
-    reps = name.map(single)
+    single = named[n_named == 1].set_index("nk")["artist"]
+    reps = nk.map(single)
 
     # 아티스트 표기가 둘 이상인 이름만 크레딧 묶음 계산
-    multi_names = set(named.loc[n_named > 1, "name"])
-    if multi_names:
-        has_blank = set(pairs.loc[pairs["artist"] == "", "name"])
+    multi = set(named.loc[n_named > 1, "nk"])
+    if multi:
+        has_blank = set(art.loc[art["artist"] == "", "nk"])
         rep_of: dict[tuple[str, str], str] = {}
-        for nm, grp in named[named["name"].isin(multi_names)].groupby("name"):
+        for k, grp in named[named["nk"].isin(multi)].groupby("nk"):
             counts = dict(zip(grp["artist"], grp["n"].astype(int)))
             rep = _cluster_artists(counts)
             for a, r in rep.items():
-                rep_of[(nm, a)] = r
-            if nm in has_blank:
+                rep_of[(k, a)] = r
+            if k in has_blank:
                 totals: dict[str, int] = {}
                 for a, r in rep.items():
                     totals[r] = totals.get(r, 0) + counts[a]
-                rep_of[(nm, "")] = sorted(totals, key=lambda r: (-totals[r], r))[0]
-        mask = name.isin(multi_names)
-        reps = reps.where(~mask, pd.Series([rep_of.get((n, a), "") for n, a in zip(name[mask], artist[mask])], index=name[mask].index))
+                rep_of[(k, "")] = sorted(totals, key=lambda r: (-totals[r], r))[0]
+        mask = nk.isin(multi)
+        reps = reps.where(~mask, pd.Series([rep_of.get((k, a), "") for k, a in zip(nk[mask], artist[mask])], index=nk[mask].index))
     reps = reps.fillna("")
-    keys = (reps + " - " + name).where(reps != "", name).where(name != "", "")
+
+    keys = (reps + " - " + names).where(reps != "", names).where(names != "", "")
+    return keys, reps, names
+
+
+def resolve_keys(df: pd.DataFrame, column: str) -> tuple[pd.Series, pd.Series]:
+    keys, reps, _ = resolve_all(df, column)
     return keys, reps
 
 
 def key_series(df: pd.DataFrame, column: str) -> pd.Series:
-    return resolve_keys(df, column)[0]
+    return resolve_all(df, column)[0]
 
 
 def unique_count(df: pd.DataFrame, column: str) -> int:

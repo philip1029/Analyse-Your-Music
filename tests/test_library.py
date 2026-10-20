@@ -84,5 +84,42 @@ class DetailTest(unittest.TestCase):
         self.assertIsNone(track_detail(frame(), "Pink Floyd", "Nope"))
 
 
+def credit_frame():
+    """Tori no Uta 가 크레딧 표기·대소문자가 다르게 두 아티스트 밑에 있는 경우 (실제 데이터에서 곡 페이지가 안 열리던 사례)."""
+    rows = []
+    for i in range(5):
+        rows.append({"utc_time": f"2026-02-0{i + 1} 00:00:00", "artist": "LIA & VISUAL ARTS / Key", "album": "Air OST", "track": "Tori no Uta", "source": "L"})
+    for i in range(2):
+        rows.append({"utc_time": f"2026-03-0{i + 1} 00:00:00", "artist": "VISUAL ARTS / Key", "album": "Air OST", "track": "Tori no uta", "source": "A"})
+    rows.append({"utc_time": "2026-03-05 00:00:00", "artist": "VISUAL ARTS / Key", "album": "Air OST", "track": "Hane", "source": "A"})
+    return pd.DataFrame(rows)
+
+
+class CreditClusterDetailTest(unittest.TestCase):
+    def test_track_opens_from_either_credit_spelling_and_any_letter_case(self):
+        for artist, title in (("VISUAL ARTS / Key", "Tori no Uta"), ("LIA & VISUAL ARTS / Key", "Tori no uta"), ("VISUAL ARTS / Key", "TORI NO UTA")):
+            d = track_detail(credit_frame(), artist, title)
+            self.assertIsNotNone(d, (artist, title))
+            self.assertEqual((d["scrobbles"], d["name"], d["artist"]), (7, "Tori no Uta", "LIA & VISUAL ARTS / Key"))
+
+    def test_album_page_merges_case_variants_and_its_tracks_open(self):
+        album = album_detail(credit_frame(), "VISUAL ARTS / Key", "Air OST")
+        self.assertEqual((album["scrobbles"], album["tracks_count"]), (8, 2))
+        top = album["tracks"][0]
+        self.assertEqual((top["name"], top["count"]), ("Tori no Uta", 7))
+        self.assertEqual(track_detail(credit_frame(), top["artist"], top["name"])["scrobbles"], top["count"])   # 목록 -> 상세가 같은 항목
+
+    def test_every_ranked_item_opens_with_the_same_count(self):
+        df = credit_frame()
+        for category, fn in (("track", track_detail), ("album", album_detail)):
+            for it in ranked_page(df, category)["items"]:
+                d = fn(df, it["artist"], it["name"])
+                self.assertEqual(d["scrobbles"], it["count"], (category, it))
+
+    def test_artist_page_counts_case_variants_once(self):
+        d = artist_detail(credit_frame(), "VISUAL ARTS / Key")
+        self.assertEqual((d["tracks_count"], d["tracks"][0]["name"]), (2, "Tori no uta"))
+
+
 if __name__ == "__main__":
     unittest.main()

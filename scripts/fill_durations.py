@@ -29,7 +29,7 @@ sys.path.insert(0, str(ROOT / "backend"))
 
 import pandas as pd  # noqa: E402
 
-from app.analysis.keys import resolve_keys  # noqa: E402
+from app.analysis.keys import resolve_all  # noqa: E402
 from app.lastfm import durations as dur  # noqa: E402
 
 
@@ -48,9 +48,9 @@ def load_env_key():
 def track_pairs(csv_path):
     """앱이 곡을 세는 방식 그대로의 (대표 아티스트, 곡명, 재생 수), 재생 많은 순."""
     df = pd.read_csv(csv_path, encoding="utf-8-sig").fillna("")
-    keys, reps = resolve_keys(df, "track")
+    keys, reps, names = resolve_all(df, "track")
     valid = keys != ""
-    work = pd.DataFrame({"artist": reps[valid], "track": df.loc[valid, "track"], "key": keys[valid]})
+    work = pd.DataFrame({"artist": reps[valid], "track": names[valid], "key": keys[valid]})
     counts = work.groupby("key").agg(artist=("artist", "first"), track=("track", "first"), n=("key", "size"))
     return [(r.artist, r.track, int(r.n)) for r in counts.sort_values("n", ascending=False).itertuples()]
 

@@ -10,7 +10,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
-from app.analysis.keys import key_series, resolve_keys, unique_count  # noqa: E402
+from app.analysis.keys import key_series, resolve_all, resolve_keys, unique_count  # noqa: E402
 from app.analysis.discovery import compute_discovery  # noqa: E402
 
 
@@ -76,6 +76,16 @@ class CreditClusterTest(unittest.TestCase):
         df = albums(("Oasis", "Morning Glory"), ("Oasis", "Morning Glory"), ("Tim Buckley", "Morning Glory"), ("", "Morning Glory"))
         keys, _ = resolve_keys(df, "album")
         self.assertEqual(list(keys), ["Oasis - Morning Glory"] * 2 + ["Tim Buckley - Morning Glory", "Oasis - Morning Glory"])
+
+    def test_titles_differing_only_by_case_or_spaces_are_one_item_with_the_most_used_spelling(self):
+        df = albums(*[("A", "Tori no Uta")] * 3, ("A", "Tori no uta"), ("A", "Tori  no Uta"))
+        keys, _, names = resolve_all(df, "album")
+        self.assertEqual(set(keys), {"A - Tori no Uta"})
+        self.assertEqual(set(names), {"Tori no Uta"})
+
+    def test_names_made_only_of_punctuation_are_not_merged_together(self):
+        df = albums(("A", "?"), ("A", "!!"))
+        self.assertEqual(unique_count(df, "album"), 2)
 
     def test_nothing_but_empty_artists_keeps_plain_name(self):
         keys, reps = resolve_keys(albums(("", "Solo")), "album")

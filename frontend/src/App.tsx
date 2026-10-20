@@ -7,6 +7,7 @@ import { CatStat, OverviewCards } from "./OverviewCards";
 import { DiscoveryList } from "./DiscoveryList";
 import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
+import { Skeleton } from "./motion";
 import { RankRow, type RankKind } from "./RankRow";
 import { fmtHM, makeFmt, withWeekday, type Metric } from "./format";
 import {
@@ -88,6 +89,8 @@ type TagDistribution = {
   tags: { tag: string; score: number }[];
   covered_artists: number;
   total_artists: number;
+  covered_plays: number;
+  total_plays: number;
 };
 
 // 월별 재생 분포로 본 "꾸준함". evenness 1 = 모든 달에 고르게, 0 = 한 달에 몰림
@@ -396,7 +399,7 @@ function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n
             onMouseLeave={() => setTooltip(null)}
             style={{ cursor: "pointer" }}
           >
-            <path d={describeWedge(rOuterMax, startAngle, endAngle)} fill={isHovered ? "#ddd" : "#eee"} />
+            <path d={describeWedge(rOuterMax, startAngle, endAngle)} fill={isHovered ? "rgba(128,128,128,0.4)" : "rgba(128,128,128,0.22)"} />
             {d.count > 0 && (
               <path
                 d={describeWedge(rOuter, startAngle, endAngle)}
@@ -490,8 +493,9 @@ function SortedTagTooltip({
   return (
     <div
       style={{
-        background: "white",
-        border: "1px solid #ccc",
+        background: "Canvas",
+        color: "CanvasText",
+        border: "1px solid rgba(128,128,128,0.45)",
         borderRadius: 6,
         padding: "0.5rem 0.75rem",
         fontSize: "0.85rem",
@@ -532,7 +536,8 @@ function DayDetailModal({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "white",
+          background: "Canvas",
+          color: "CanvasText",
           borderRadius: 8,
           padding: "1.5rem",
           width: "min(600px, 90vw)",
@@ -999,6 +1004,13 @@ const handleCopyPrompt = () => {
           } else if (durs && (durs.found || durs.unknown)) {
             parts.push(`곡 길이 ${durs.found ?? 0}곡 추가${durs.unknown ? ` (못 찾음 ${durs.unknown})` : ""}${durs.remaining ? ` · 남은 ${durs.remaining}곡은 다음에` : ""}`);
           }
+          // 새 아티스트 태그 조회 결과
+          const tagRes = data.tags as { error?: string; fetched?: number; remaining?: number } | null | undefined;
+          if (tagRes?.error) {
+            parts.push(`태그 조회 실패: ${tagRes.error}`);
+          } else if (tagRes?.fetched) {
+            parts.push(`아티스트 태그 ${tagRes.fetched}명 추가${tagRes.remaining ? ` · 남은 ${tagRes.remaining}명은 다음에` : ""}`);
+          }
           setRefreshMessage(
             `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
           );
@@ -1049,7 +1061,14 @@ const handleCopyPrompt = () => {
   };
 
   if (error) return <div>에러 발생: {error}</div>;
-  if (!stats) return <div>불러오는 중...</div>;
+  if (!stats)
+    return (
+      <div style={{ padding: "2rem 1rem" }}>
+        <h1 className="aym-rise">Analyse Your Music</h1>
+        <Skeleton lines={2} height={34} style={{ margin: "2rem 0 1.5rem" }} />
+        <Skeleton lines={4} height={90} />
+      </div>
+    );
 
   const fmtVal = makeFmt(metric);
   const axisFmt = (v: number) => (metric === "time" ? `${Math.round(v / 60)}h` : String(v));
@@ -1084,12 +1103,14 @@ const handleCopyPrompt = () => {
       {cacheMessage && <p>{cacheMessage}</p>}
 
       {/* 탭 바 */}
-      <div style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid #ddd", marginBottom: "1.5rem" }}>
+      <div className="tab-bar" style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid #ddd", marginBottom: "1.5rem", overflowX: "auto" }}>
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             style={{
+              flexShrink: 0,
+              whiteSpace: "nowrap",
               padding: "0.6rem 1rem",
               border: "none",
               borderBottom: activeTab === tab.id ? "2px solid #333" : "2px solid transparent",
@@ -1112,6 +1133,7 @@ const handleCopyPrompt = () => {
         <div
           style={{
             background: "#fdd",
+            color: "#222",
             border: "1px solid #c00",
             borderRadius: 8,
             padding: "1rem",
@@ -1127,6 +1149,7 @@ const handleCopyPrompt = () => {
         </div>
       )}
 
+      <div key={activeTab} className="aym-tab">
       {/* Overview 탭 */}
       {activeTab === "overview" && (
         <>
@@ -1439,7 +1462,8 @@ const handleCopyPrompt = () => {
               <h2>
                 장르/태그 분포{" "}
                 <span style={{ fontSize: "0.8rem", color: "#888" }}>
-                  ({tagDistribution.covered_artists} / {tagDistribution.total_artists} 아티스트 기준)
+                  (재생 {tagDistribution.total_plays ? Math.round((tagDistribution.covered_plays / tagDistribution.total_plays) * 100) : 0}% 반영 ·
+                  아티스트 {tagDistribution.covered_artists} / {tagDistribution.total_artists}명)
                 </span>
               </h2>
               <ResponsiveContainer width="100%" height={400}>
@@ -1462,9 +1486,10 @@ const handleCopyPrompt = () => {
                   <button
                     onClick={() => setEvolutionMode("fixed")}
                     style={{
-                      padding: "0.3rem 0.7rem",
-                      fontWeight: evolutionMode === "fixed" ? "bold" : "normal",
-                      background: evolutionMode === "fixed" ? "#eee" : "white",
+                      padding: "0.3rem 0.8rem",
+                      marginLeft: "0.4rem",
+                      fontWeight: evolutionMode === "fixed" ? 700 : 400,
+                      border: evolutionMode === "fixed" ? "2px solid #8884d8" : "1px solid #666",
                     }}
                   >
                     전체 기간 기준
@@ -1472,9 +1497,10 @@ const handleCopyPrompt = () => {
                   <button
                     onClick={() => setEvolutionMode("dynamic")}
                     style={{
-                      padding: "0.3rem 0.7rem",
-                      fontWeight: evolutionMode === "dynamic" ? "bold" : "normal",
-                      background: evolutionMode === "dynamic" ? "#eee" : "white",
+                      padding: "0.3rem 0.8rem",
+                      marginLeft: "0.4rem",
+                      fontWeight: evolutionMode === "dynamic" ? 700 : 400,
+                      border: evolutionMode === "dynamic" ? "2px solid #8884d8" : "1px solid #666",
                     }}
                   >
                     월별 실제 순위
@@ -1670,6 +1696,7 @@ const handleCopyPrompt = () => {
                 <div
                   style={{
                     background: "#fff3cd",
+                    color: "#222",
                     border: "1px solid #e0a800",
                     borderRadius: 8,
                     padding: "1rem",
@@ -1692,6 +1719,7 @@ const handleCopyPrompt = () => {
           )}
         </>
       )}
+      </div>
 
       {selectedDay && (
         <DayDetailModal

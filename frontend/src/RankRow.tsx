@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Cover } from "./Cover";
+import { Num, stagger } from "./motion";
 import { CAT } from "./theme";
 
 // Last.fm 라이브러리 스타일의 순위 한 줄: 순위 · 커버 · 이름/부제 · 막대(수치)
@@ -37,18 +38,25 @@ export function RankRow({
   showArtist?: boolean;
   extra?: ReactNode;          // 이름 아래에 붙일 내용 (예: 월별 미니 그래프)
   barFraction?: number;       // 막대 길이(0~1). 기본은 count / max
-  barText?: string;           // 막대 안 글자. 기본은 count
+  barText?: ReactNode;        // 막대 안 글자. 기본은 count
 }) {
   const subtitle = showArtist ? item.artist : null;
   const fraction = barFraction ?? item.count / max;
-  const text = barText ?? `${item.count.toLocaleString()}${rank === 1 ? " scrobbles" : ""}`;
+  const delay = stagger((rank - 1) % 12);
+  const text = barText ?? (
+    <>
+      <Num value={item.count} />
+      {rank === 1 ? " scrobbles" : ""}
+    </>
+  );
   return (
     <div
+      className="aym-rise"
       role={onOpen ? "button" : undefined}
       tabIndex={onOpen ? 0 : undefined}
       onClick={onOpen}
       onKeyDown={onOpen ? (e) => e.key === "Enter" && onOpen() : undefined}
-      style={{ display: "flex", alignItems: "center", gap: "0.9rem", padding: "0.55rem 0.25rem", borderBottom: LINE, cursor: onOpen ? "pointer" : "default", textAlign: "left" }}
+      style={{ display: "flex", alignItems: "center", gap: "0.9rem", padding: "0.55rem 0.25rem", borderBottom: LINE, cursor: onOpen ? "pointer" : "default", textAlign: "left", ...delay }}
     >
       <span style={{ width: 28, textAlign: "right", color: "#999", flexShrink: 0 }}>{rank}</span>
       {kind === "artist" ? (
@@ -65,7 +73,10 @@ export function RankRow({
         {extra}
       </div>
       <div style={{ width: "38%", maxWidth: 360, flexShrink: 0 }}>
-        <div style={{ width: `${Math.max(4, Math.min(1, fraction) * 100)}%`, background: CAT[kind].soft, padding: "0.5rem 0.6rem", borderRadius: 2, whiteSpace: "nowrap", boxSizing: "border-box" }}>
+        <div
+          className="aym-bar"
+          style={{ width: `${Math.max(4, Math.min(1, fraction) * 100)}%`, background: CAT[kind].soft, padding: "0.5rem 0.6rem", borderRadius: 2, whiteSpace: "nowrap", boxSizing: "border-box", transition: "width 600ms cubic-bezier(0.22, 1, 0.36, 1)", animationDelay: `${120 + parseInt(String(delay.animationDelay), 10)}ms` }}
+        >
           {text}
         </div>
       </div>

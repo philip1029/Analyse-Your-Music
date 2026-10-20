@@ -117,7 +117,9 @@ def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
 
     tag_scores: dict[str, float] = {}
     covered_artists = 0
+    covered_plays = 0
     total_artists = len(artist_counts)
+    total_plays = int(artist_counts.sum())
 
     for artist_name, play_count in artist_counts.items():
         resolved_name = resolve_artist_name(artist_name)
@@ -126,6 +128,7 @@ def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
             continue  # 아직 태그를 안 가져온 아티스트는 건너뜀
 
         covered_artists += 1
+        covered_plays += int(play_count)
         with open(cache_path, "r", encoding="utf-8") as f:
             tags = json.load(f)
 
@@ -143,6 +146,8 @@ def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
         ],
         "covered_artists": covered_artists,
         "total_artists": total_artists,
+        "covered_plays": covered_plays,
+        "total_plays": total_plays,
     }
 
 def compute_tag_evolution(df: pd.DataFrame, top_n_tags: int = 6) -> dict:

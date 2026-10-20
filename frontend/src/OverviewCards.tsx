@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { BASE_URL } from "./config";
 import { fmtHM, withWeekday } from "./format";
+import { Num, Skeleton, stagger } from "./motion";
 import { CAT, CARD_INK, DOG_EAR, MUTED, SCROBBLE_COLOR } from "./theme";
 
 // Overview 맨 위: 문장형 요약(Apple 리플레이식) + 증감 칩이 있는 통계 카드 4개(Last.fm 리포트식)
@@ -28,27 +29,27 @@ function Bars({ bars }: { bars: number[] }) {
     <svg width={bars.length * (w + gap) - gap} height={36} aria-hidden style={{ flexShrink: 0 }}>
       {bars.map((b, i) => {
         const h = Math.max(3, (b / max) * 36);
-        return <rect key={i} x={i * (w + gap)} y={36 - h} width={w} height={h} fill={CARD_INK} />;
+        return <rect key={i} className="aym-spark" style={{ animationDelay: `${120 + i * 60}ms` }} x={i * (w + gap)} y={36 - h} width={w} height={h} fill={CARD_INK} />;
       })}
     </svg>
   );
 }
 
-function StatCard({ title, color, data, deltaTitle }: { title: string; color: string; data: CardData; deltaTitle: string }) {
+function StatCard({ title, color, data, deltaTitle, index = 0 }: { title: string; color: string; data: CardData; deltaTitle: string; index?: number }) {
   const d = data.delta_pct;
   return (
-    <div style={{ background: color, color: CARD_INK, clipPath: DOG_EAR, padding: "0.9rem 1.1rem 1rem", minHeight: 104, textAlign: "left" }}>
+    <div className="aym-rise" style={{ ...stagger(index, 70), background: color, color: CARD_INK, clipPath: DOG_EAR, padding: "0.9rem 1.1rem 1rem", minHeight: 104, textAlign: "left" }}>
       <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>{title}</div>
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.5rem" }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "2.3rem", fontWeight: 800, lineHeight: 1 }}>{data.value.toLocaleString()}</span>
+          <span style={{ fontSize: "2.3rem", fontWeight: 800, lineHeight: 1 }}><Num value={data.value} /></span>
           {d !== null && (
             <span title={`${deltaTitle} (비교 대상 ${data.prev.toLocaleString()})`} style={{ fontSize: "0.95rem", fontWeight: 700 }}>
-              {d >= 0 ? "↑" : "↓"} {Math.abs(Math.round(d))}%
+              {d >= 0 ? "↑" : "↓"} <Num value={Math.abs(Math.round(d))} duration={900} />%
             </span>
           )}
         </div>
-        <Bars bars={data.bars} />
+        <Bars key={data.bars.join(",")} bars={data.bars} />
       </div>
     </div>
   );
@@ -92,23 +93,23 @@ export function OverviewCards({
     <>
       {/* 문장형 요약: 숫자만 굵게 강조한다 */}
       {timeSummary && (
-        <div style={{ margin: "0.6rem 0 1.4rem" }}>
+        <div key={`${isAllTime}-${Math.round(timeSummary.total_seconds)}`} style={{ margin: "0.6rem 0 1.4rem" }}>
           {isAllTime ? (
-            <p style={sentenceBase}>
+            <p className="aym-rise" style={sentenceBase}>
               {firstScrobble ? <><span style={strong}>{plain(firstScrobble)}</span>부터 </> : null}
-              <span style={strong}>{totalScrobbles.toLocaleString()}</span>번 들었고, 음악을{" "}
-              <span style={strong}>{fmtHM(timeSummary.total_seconds)}</span> 들었어요.
+              <span style={strong}><Num value={totalScrobbles} duration={1100} /></span>번 들었고, 음악을{" "}
+              <span style={strong}><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} /></span> 들었어요.
             </p>
           ) : (
-            <p style={sentenceBase}>
-              이 기간에 음악을 <span style={strong}>{fmtHM(timeSummary.total_seconds)}</span> 들었어요.
+            <p className="aym-rise" style={sentenceBase}>
+              이 기간에 음악을 <span style={strong}><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} /></span> 들었어요.
               {scrobbleDelta !== null && (
-                <> 직전 같은 기간보다 스크로블이 <span style={strong}>{Math.abs(Math.round(scrobbleDelta))}%</span> {scrobbleDelta >= 0 ? "늘었어요" : "줄었어요"}.</>
+                <> 직전 같은 기간보다 스크로블이 <span style={strong}><Num value={Math.abs(Math.round(scrobbleDelta))} />%</span> {scrobbleDelta >= 0 ? "늘었어요" : "줄었어요"}.</>
               )}
             </p>
           )}
-          <p style={{ ...sentenceBase, fontSize: "1.05rem", fontWeight: 500, margin: 0 }}>
-            하루 평균 <span style={strong}>{fmtHM(timeSummary.avg_seconds_per_day)}</span>
+          <p className="aym-rise" style={{ ...sentenceBase, fontSize: "1.05rem", fontWeight: 500, margin: 0, animationDelay: "140ms" }}>
+            하루 평균 <span style={strong}><Num value={timeSummary.avg_seconds_per_day} format={fmtHM} /></span>
             {timeSummary.busiest_day && (
               <>
                 , 가장 많이 들은 날은 <span style={strong}>{withWeekday(timeSummary.busiest_day.date)}</span>({fmtHM(timeSummary.busiest_day.seconds)})
@@ -120,14 +121,16 @@ export function OverviewCards({
         </div>
       )}
 
+      {!timeSummary && <Skeleton lines={2} height={30} style={{ margin: "0.6rem 0 1.4rem" }} />}
+
       {/* 통계 카드: 스크로블(분홍) · 아티스트(보라) · 앨범(민트) · 트랙(파랑) */}
       {data && (
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "0.8rem" }}>
-            <StatCard title="스크로블" color={SCROBBLE_COLOR} data={data.cards.scrobbles} deltaTitle={data.delta_label} />
-            <StatCard title={CAT.artist.label} color={CAT.artist.main} data={data.cards.artists} deltaTitle={data.delta_label} />
-            <StatCard title={CAT.album.label} color={CAT.album.main} data={data.cards.albums} deltaTitle={data.delta_label} />
-            <StatCard title={CAT.track.label} color={CAT.track.main} data={data.cards.tracks} deltaTitle={data.delta_label} />
+            <StatCard title="스크로블" color={SCROBBLE_COLOR} data={data.cards.scrobbles} deltaTitle={data.delta_label} index={0} />
+            <StatCard title={CAT.artist.label} color={CAT.artist.main} data={data.cards.artists} deltaTitle={data.delta_label} index={1} />
+            <StatCard title={CAT.album.label} color={CAT.album.main} data={data.cards.albums} deltaTitle={data.delta_label} index={2} />
+            <StatCard title={CAT.track.label} color={CAT.track.main} data={data.cards.tracks} deltaTitle={data.delta_label} index={3} />
           </div>
           <p style={{ color: MUTED, fontSize: "0.8rem", textAlign: "left", margin: "0.5rem 0 1rem" }}>
             {isAllTime ? "숫자는 전체 기간 합계" : `숫자는 ${data.label} 합계`} · 화살표는 {data.delta_label}
@@ -145,7 +148,7 @@ export function CatStat({ title, color, value, unit }: { title: string; color: s
     <div style={{ background: color, color: CARD_INK, clipPath: DOG_EAR, padding: "0.9rem 1.1rem 1rem", minHeight: 88, textAlign: "left" }}>
       <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>{title}</div>
       <div style={{ marginTop: "0.4rem", display: "flex", alignItems: "baseline", gap: "0.3rem" }}>
-        <span style={{ fontSize: "2.3rem", fontWeight: 800, lineHeight: 1 }}>{value.toLocaleString()}</span>
+        <span style={{ fontSize: "2.3rem", fontWeight: 800, lineHeight: 1 }}><Num value={value} /></span>
         {unit && <span style={{ fontSize: "1rem", fontWeight: 600 }}>{unit}</span>}
       </div>
     </div>

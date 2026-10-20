@@ -7,6 +7,12 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
+# --lan 을 주면 같은 Wi-Fi의 폰/태블릿에서도 접속할 수 있게 서버를 연다 (인증이 없으니 집 Wi-Fi에서만 쓸 것)
+HOST="127.0.0.1"
+if [ "$1" = "--lan" ]; then
+  HOST="0.0.0.0"
+fi
+
 if [ ! -f "$DIR/.env" ]; then
   echo "⚠️  .env 파일이 없습니다. .env.example을 복사해서 LASTFM_API_KEY / USERNAME을 채워주세요."
   echo "   (없어도 서버는 켜지지만 Last.fm 연동 기능은 동작하지 않습니다)"
@@ -38,12 +44,18 @@ cleanup() {
 trap cleanup INT TERM HUP
 
 echo "백엔드 서버 시작 → http://localhost:8000"
-(cd "$DIR/backend" && exec uvicorn app.main:app --reload --port 8000) &
+(cd "$DIR/backend" && exec uvicorn app.main:app --reload --host "$HOST" --port 8000) &
 BACKEND_PID=$!
 
 echo "프론트엔드 서버 시작 → http://localhost:5173"
-(cd "$DIR/frontend" && exec ./node_modules/.bin/vite --port 5173) &
+(cd "$DIR/frontend" && exec ./node_modules/.bin/vite --host "$HOST" --port 5173) &
 FRONTEND_PID=$!
+
+if [ "$HOST" = "0.0.0.0" ]; then
+  LAN_IP="$(ipconfig getifaddr en0 2>/dev/null || true)"
+  echo ""
+  echo "📱 폰에서 접속: http://${LAN_IP:-<이 맥의 IP>}:5173  (같은 Wi-Fi에 연결돼 있어야 합니다)"
+fi
 
 sleep 3
 open "http://localhost:5173" 2>/dev/null || true

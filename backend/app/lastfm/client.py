@@ -6,6 +6,7 @@ from pathlib import Path
 import requests
 
 BASE_URL = "http://ws.audioscrobbler.com/2.0/"
+TRANSIENT_ERROR_CODES = {8, 11, 16, 29}     # 일시적 오류/서비스 오류/요청 한도: 캐시하면 안 된다
 CACHE_DIR = Path(__file__).resolve().parent.parent.parent / "cache" / "artists"
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -81,15 +82,20 @@ def get_artist_top_tags(artist_name: str, api_key: str) -> list[dict]:
     try:
         response = requests.get(BASE_URL, params=params, timeout=10)
         data = response.json()
-        tags = data.get("toptags", {}).get("tag", [])
-
-        cleaned_tags = [
-            {"name": t.get("name", ""), "count": int(t.get("count", 0))}
-            for t in tags
-            if t.get("name")
-        ]
     except Exception:
-        cleaned_tags = []
+        return []                                   # 네트워크 오류는 캐시하지 않는다 (다음에 다시 시도)
+
+    # 요청 한도 초과·서비스 오류 같은 일시적 오류도 캐시하지 않는다. 6(아티스트를 못 찾음)만 "태그 없음"으로 캐시한다.
+    if data.get("error") in TRANSIENT_ERROR_CODES:
+        time.sleep(1.0)
+        return []
+
+    tags = data.get("toptags", {}).get("tag", [])
+    cleaned_tags = [
+        {"name": t.get("name", ""), "count": int(t.get("count", 0))}
+        for t in tags
+        if t.get("name")
+    ]
 
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(cleaned_tags, f, ensure_ascii=False, indent=2)

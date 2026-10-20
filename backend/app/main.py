@@ -356,6 +356,7 @@ def validate():
     return result
 
 
+TAG_FILL_LIMIT = 40   # 새로고침 한 번에 태그를 조회할 최대 아티스트 수
 FILL_LIMIT = 60   # 새로고침 한 번에 길이를 조회할 최대 곡 수
 
 
@@ -443,7 +444,28 @@ def refresh_scrobbles():
     except Exception as e:  # noqa: BLE001
         durations_result = {"error": str(e)}
 
-    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "titles": titles, "durations": durations_result}
+    # 새 아티스트의 태그(장르)도 소량 채운다 (Taste 탭 분포가 일부 아티스트만 덮는 것을 줄인다). 실패해도 새로고침은 성공이다.
+    tags_result = None
+    tag_script = script_path.with_name("fill_artist_tags.py")
+    if os.environ.get("LASTFM_API_KEY"):
+        try:
+            tag_run = subprocess.run(
+                ["python3", str(tag_script), "--json", "--limit", str(TAG_FILL_LIMIT)],
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if tag_run.returncode == 0:
+                json_lines = [ln for ln in tag_run.stdout.splitlines() if ln.startswith("{")]
+                tags_result = json.loads(json_lines[-1]) if json_lines else None
+            else:
+                tags_result = {"error": (tag_run.stderr or tag_run.stdout)[-300:]}
+        except subprocess.TimeoutExpired:
+            tags_result = {"error": "태그 조회 시간 초과 (다음에 이어서 합니다)"}
+        except Exception as e:  # noqa: BLE001
+            tags_result = {"error": str(e)}
+
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "titles": titles, "durations": durations_result, "tags": tags_result}
 
 @app.get("/api/taste/evolution")
 def taste_evolution(

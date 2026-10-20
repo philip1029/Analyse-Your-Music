@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { agoText } from "./format";
+import { Skeleton, stagger } from "./motion";
 import { CAT, type Cat } from "./theme";
 import type { LibraryTarget } from "./Library";
 
@@ -34,7 +35,7 @@ export function DiscoveryList({ cat, query, onOpen }: { cat: Cat; query: (extra?
   }, [cat, query]);
 
   if (error) return <p style={{ color: "#d66" }}>{error}</p>;
-  if (!items) return <p style={{ color: "#999" }}>불러오는 중...</p>;
+  if (!items) return <Skeleton lines={6} height={44} />;
   if (items.length === 0) return <p style={{ color: "#999" }}>이 기간에 새로 발견한 항목이 없어요.</p>;
 
   const target = (it: Item): LibraryTarget =>
@@ -42,18 +43,19 @@ export function DiscoveryList({ cat, query, onOpen }: { cat: Cat; query: (extra?
 
   return (
     <div style={{ textAlign: "left" }}>
-      {items.map((it) => {
+      {items.map((it, idx) => {
         const date = it.first_listened.slice(0, 10);
         const time = it.first_listened.slice(11);
         const open = () => onOpen(target(it));
         return (
           <div
             key={`${it.artist}|${it.name}|${it.first_listened}`}
+            className="aym-rise"
             role="button"
             tabIndex={0}
             onClick={open}
             onKeyDown={(e) => e.key === "Enter" && open()}
-            style={{ display: "flex", alignItems: "center", gap: "0.9rem", padding: "0.6rem 0.25rem", borderBottom: LINE, cursor: "pointer" }}
+            style={{ display: "flex", alignItems: "center", gap: "0.9rem", padding: "0.6rem 0.25rem", borderBottom: LINE, cursor: "pointer", ...stagger(idx) }}
           >
             {cat === "artist" ? <Cover kind="artist" artist={it.name} size={44} /> : <Cover kind="album" artist={it.artist} album={cat === "album" ? it.name : it.album} size={44} />}
             <div style={{ flex: 1, minWidth: 0 }}>

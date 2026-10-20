@@ -3,6 +3,7 @@ import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { LINE, RankRow, fmtDuration } from "./RankRow";
 import { agoText, fmtHM } from "./format";
+import { Num, Skeleton } from "./motion";
 import { ShareButton } from "./Share";
 import { CAT } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
@@ -53,7 +54,7 @@ function Stat({ title, value, sub }: { title: string; value: string | number; su
   return (
     <div>
       <div style={label}>{title}</div>
-      <div style={bigNumber}>{typeof value === "number" ? value.toLocaleString() : value}</div>
+      <div style={bigNumber}>{typeof value === "number" ? <Num value={value} /> : value}</div>
       {sub && <div style={{ color: "#999", fontSize: "0.85rem" }}>{sub}</div>}
     </div>
   );
@@ -255,7 +256,7 @@ function ListView({ category, metric, query, onOpen }: { category: Category; met
   return (
     <>
       <div style={label}>{noun} scrobbled</div>
-      <div style={{ ...bigNumber, marginBottom: "1rem" }}>{total === null ? "…" : total.toLocaleString()}</div>
+      <div style={{ ...bigNumber, marginBottom: "1rem" }}>{total === null ? "…" : <Num value={total} />}</div>
       {error && <p style={{ color: "#d66" }}>{error}</p>}
       {items.map((it, i) => (
         <RankRow
@@ -285,7 +286,7 @@ function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<
   const [editing, setEditing] = useState<CoverTarget | null>(null);
   const [coverVersion, setCoverVersion] = useState(0);
   if (error) return <p style={{ color: "#d66" }}>{error}</p>;
-  if (!data) return <p style={{ color: "#999" }}>불러오는 중...</p>;
+  if (!data) return <Skeleton lines={5} height={30} />;
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
@@ -328,7 +329,7 @@ function AlbumView({
   const [editing, setEditing] = useState<CoverTarget | null>(null);
   const [coverVersion, setCoverVersion] = useState(0);
   if (error) return <p style={{ color: "#d66" }}>{error}</p>;
-  if (!data) return <p style={{ color: "#999" }}>불러오는 중...</p>;
+  if (!data) return <Skeleton lines={5} height={30} />;
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
@@ -406,7 +407,7 @@ function TrackView({
   }, [load]);
 
   if (error) return <p style={{ color: "#d66" }}>{error}</p>;
-  if (!head) return <p style={{ color: "#999" }}>불러오는 중...</p>;
+  if (!head) return <Skeleton lines={5} height={30} />;
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>

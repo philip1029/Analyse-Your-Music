@@ -37,6 +37,19 @@ def _pick_image(images: list[dict]) -> str | None:
     return None
 
 
+def cached_state(artist: str, album: str) -> str | None:
+    """네트워크 없이 캐시만 본다: "hit"(커버 있음) / "miss"(찾았지만 없음) / None(아직 조회 안 함)."""
+    if not (artist or "").strip() or not (album or "").strip():
+        return None
+    path = _cache_path(artist.strip(), album.strip())
+    if not path.exists():
+        return None
+    try:
+        return "hit" if json.loads(path.read_text(encoding="utf-8")).get("url") else "miss"
+    except (OSError, ValueError):
+        return None
+
+
 def get_album_art(artist: str, album: str, api_key: str) -> dict:
     """
     앨범 커버 주소를 반환한다: {"url": str | None, "cached": bool}.

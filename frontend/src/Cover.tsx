@@ -26,6 +26,22 @@ function limited<T>(task: () => Promise<T>): Promise<T> {
   });
 }
 
+// 커버를 묻는 API 경로 (Cover 와 공유 이미지, 직접 지정 화면이 같은 규칙을 쓴다)
+export function coverPath(kind: "album" | "artist", artist: string | null, album?: string | null): string | null {
+  if (kind === "artist" && artist) return `/api/artist-art?artist=${encodeURIComponent(artist)}`;
+  if (kind === "album" && artist && album) return `/api/album-art?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`;
+  return null;
+}
+
+// 직접 지정/변경한 뒤 이전 결과를 잊게 한다 (다음에 Cover 가 그려질 때 새로 묻는다)
+export function invalidateCover(kind: "album" | "artist", artist: string | null, album?: string | null) {
+  const path = coverPath(kind, artist, album);
+  if (path) coverMemo.delete(path);
+}
+
+// 서버가 돌려준 주소: 직접 올린 커버는 "/api/cover-file/..." 처럼 상대 주소다
+export const absoluteCoverUrl = (url: string) => (url.startsWith("/") ? `${BASE_URL}${url}` : url);
+
 function fetchCover(path: string): Promise<string | null> {
   let pending = coverMemo.get(path);
   if (!pending) {
@@ -82,9 +98,7 @@ export function Cover({
     let cancelled = false;
     setUrl(null);
     setFailed(false);
-    let path: string | null = null;
-    if (kind === "artist" && artist) path = `/api/artist-art?artist=${encodeURIComponent(artist)}`;
-    if (kind === "album" && artist && album) path = `/api/album-art?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`;
+    const path = coverPath(kind, artist, album);
     if (path && visible) {
       fetchCover(path).then((u) => {
         if (!cancelled) setUrl(u);
@@ -113,7 +127,7 @@ export function Cover({
   return (
     <div ref={ref} style={box}>
       {url && !failed ? (
-        <img src={url} alt={label ?? ""} width={size} height={size} loading="lazy" onError={() => setFailed(true)} style={{ objectFit: "cover", display: "block" }} />
+        <img src={absoluteCoverUrl(url)} alt={label ?? ""} width={size} height={size} loading="lazy" onError={() => setFailed(true)} style={{ objectFit: "cover", display: "block" }} />
       ) : label ? (
         Array.from(label)[0]
       ) : (

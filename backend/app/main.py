@@ -4,7 +4,8 @@ import subprocess
 from pathlib import Path
 import pandas as pd
 from fastapi import FastAPI
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -13,6 +14,8 @@ from app.analysis.ai_prompt_period import build_period_prompt, list_periods
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.lastfm.client import invalidate_aliased_cache
 from app.lastfm.album_art import get_album_art
+from app.lastfm import cover_overrides
+from app.analysis.cover_audit import audit_albums, check_unchecked
 from app.lastfm.image_proxy import fetch_image
 from app.analysis.report_card import build_report_card
 from app.lastfm.artist_art import get_artist_art
@@ -510,16 +513,74 @@ def library_track(name: str, artist: str = "", offset: int = 0, limit: int = 50,
 
 @app.get("/api/album-art")
 def album_art(artist: str = "", album: str = ""):
-    """앨범 커버 주소를 반환한다 (Last.fm album.getInfo, 디스크 캐시). 없으면 url 이 null."""
+    """앨범 커버 주소를 반환한다. 사용자가 직접 올린 커버가 있으면 그것을, 없으면 Last.fm album.getInfo(디스크 캐시)를 쓴다."""
+    manual = cover_overrides.get_url("album", artist, album)
+    if manual:
+        return {"url": manual, "cached": True, "source": "manual"}
     api_key = os.environ.get("LASTFM_API_KEY")
     if not api_key:
         return {"url": None, "error": "LASTFM_API_KEY가 설정되지 않았습니다."}
     return get_album_art(artist, album, api_key)
 
 
+class CoverOverrideBody(BaseModel):
+    kind: str                      # "album" 또는 "artist"
+    artist: str = ""
+    album: str = ""
+    image: str                     # data:image/...;base64,... (브라우저가 줄여서 보낸다)
+
+
+@app.post("/api/cover-override")
+def cover_override_set(body: CoverOverrideBody):
+    """커버/사진을 직접 지정한다. 자동 조회 결과보다 우선한다."""
+    try:
+        url = cover_overrides.set_override(body.kind, body.artist, body.album, body.image)
+    except ValueError as e:
+        return Response(content=str(e), status_code=400, media_type="text/plain")
+    return {"url": url, "source": "manual"}
+
+
+@app.delete("/api/cover-override")
+def cover_override_clear(kind: str, artist: str = "", album: str = ""):
+    """직접 지정한 커버를 지우고 자동 조회 결과로 되돌린다."""
+    return {"removed": cover_overrides.clear_override(kind, artist, album)}
+
+
+@app.get("/api/cover-file/{name}")
+def cover_file(name: str):
+    path = cover_overrides.file_path(name)
+    if not path:
+        return Response(content="없는 파일입니다.", status_code=404, media_type="text/plain")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/api/cover-missing")
+def cover_missing(top: int = 300):
+    """많이 들은 앨범 상위 top 개 중 커버를 못 찾은 앨범 목록과 점검 현황."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return audit_albums(df, min(max(10, top), 1000))
+
+
+@app.post("/api/cover-check")
+def cover_check(limit: int = 30, top: int = 300):
+    """아직 조회하지 않은 앨범(재생 많은 순)을 limit 개까지 Last.fm 에서 조회해 누락 여부를 확인한다."""
+    api_key = os.environ.get("LASTFM_API_KEY")
+    if not api_key:
+        return {"error": "LASTFM_API_KEY가 설정되지 않았습니다."}
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return check_unchecked(df, api_key, min(max(1, limit), 100), min(max(10, top), 1000))
+
+
 @app.get("/api/artist-art")
 def artist_art(artist: str = ""):
-    """아티스트 사진 주소를 반환한다 (Last.fm 은 사진을 주지 않아 Deezer 검색, 디스크 캐시). 없으면 url 이 null."""
+    """아티스트 사진 주소를 반환한다. 사용자가 직접 올린 사진이 있으면 그것을, 없으면 Deezer 검색(디스크 캐시)을 쓴다."""
+    manual = cover_overrides.get_url("artist", artist)
+    if manual:
+        return {"url": manual, "cached": True, "source": "manual"}
     return get_artist_art(artist)
 
 

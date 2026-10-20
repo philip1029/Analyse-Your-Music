@@ -4,6 +4,7 @@ import { Cover } from "./Cover";
 import { LINE, RankRow, fmtDuration } from "./RankRow";
 import { agoText, fmtHM } from "./format";
 import { ShareButton } from "./Share";
+import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
 
@@ -36,6 +37,7 @@ type TrackDetail = {
 
 type View =
   | { type: "list"; category: Category }
+  | { type: "covers" }
   | { type: "artist"; name: string }
   | { type: "album"; name: string; artist: string | null }
   | { type: "track"; name: string; artist: string | null; album: string | null };   // album: 이 앨범에서 들은 기록만 (앨범 페이지에서 열 때)
@@ -120,6 +122,13 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
             </button>
           );
         })}
+        <button
+          onClick={() => setStack([{ type: "covers" }])}
+          title="자동으로 못 찾은 커버를 직접 지정"
+          style={{ padding: "0.35rem 0.9rem", marginLeft: "auto", fontWeight: view.type === "covers" ? 700 : 400, border: view.type === "covers" ? "2px solid #8884d8" : "1px solid #666" }}
+        >
+          커버 누락
+        </button>
       </div>
 
       {view.type === "list" && (
@@ -145,6 +154,7 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
           <ListView key={`${view.category}|${metric}`} category={view.category} metric={metric} query={query} onOpen={(it) => openItem(view.category, it)} />
         </>
       )}
+      {view.type === "covers" && <MissingCovers />}
       {view.type === "artist" && <ArtistView key={view.name} name={view.name} query={query} onOpen={openItem} />}
       {view.type === "album" && <AlbumView key={`${view.artist}|${view.name}`} name={view.name} artist={view.artist} query={query} onOpen={openItem} onArtist={(n) => go({ type: "artist", name: n })} />}
       {view.type === "track" && (
@@ -246,15 +256,21 @@ function ListView({ category, metric, query, onOpen }: { category: Category; met
 
 function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<string, string | number>) => string; onOpen: (k: Category, i: Item) => void }) {
   const { data, error } = useFetched<ArtistDetail>(`/api/library/artist${query({ name })}`, [name, query]);
+  const [editing, setEditing] = useState<CoverTarget | null>(null);
+  const [coverVersion, setCoverVersion] = useState(0);
   if (error) return <p style={{ color: "#d66" }}>{error}</p>;
   if (!data) return <p style={{ color: "#999" }}>불러오는 중...</p>;
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-        <Cover kind="artist" artist={data.name} size={72} />
+        <Cover key={coverVersion} kind="artist" artist={data.name} size={72} />
         <h2 style={{ margin: 0, flex: 1 }}>{data.name}</h2>
+        <button onClick={() => setEditing({ kind: "artist", artist: data.name, label: data.name })} title="아티스트 사진을 직접 지정" style={{ padding: "0.3rem 0.8rem", fontSize: "0.85rem" }}>
+          사진 변경
+        </button>
         <ShareButton spec={{ kind: "artist", name: data.name }} />
       </div>
+      {editing && <CoverEditor target={editing} onClose={() => setEditing(null)} onSaved={() => setCoverVersion((v) => v + 1)} />}
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />
@@ -283,18 +299,30 @@ function AlbumView({
   onArtist: (n: string) => void;
 }) {
   const { data, error } = useFetched<AlbumDetail>(`/api/library/album${query({ name, artist: artist ?? "" })}`, [name, artist, query]);
+  const [editing, setEditing] = useState<CoverTarget | null>(null);
+  const [coverVersion, setCoverVersion] = useState(0);
   if (error) return <p style={{ color: "#d66" }}>{error}</p>;
   if (!data) return <p style={{ color: "#999" }}>불러오는 중...</p>;
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-        <Cover kind="album" artist={data.artist} album={data.name} size={72} />
+        <Cover key={coverVersion} kind="album" artist={data.artist} album={data.name} size={72} />
         <div style={{ flex: 1 }}>
           <h2 style={{ margin: 0 }}>{data.name}</h2>
           {data.artist && <LinkButton onClick={() => onArtist(data.artist as string)}>{data.artist}</LinkButton>}
         </div>
+        {data.artist && (
+          <button
+            onClick={() => setEditing({ kind: "album", artist: data.artist as string, album: data.name, label: `${data.name} — ${data.artist}` })}
+            title="앨범 커버를 직접 지정"
+            style={{ padding: "0.3rem 0.8rem", fontSize: "0.85rem" }}
+          >
+            커버 변경
+          </button>
+        )}
         <ShareButton spec={{ kind: "album", name: data.name, artist: data.artist }} />
       </div>
+      {editing && <CoverEditor target={editing} onClose={() => setEditing(null)} onSaved={() => setCoverVersion((v) => v + 1)} />}
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />

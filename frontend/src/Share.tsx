@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { BASE_URL } from "./config";
 import { agoText, fmtHM, withWeekday } from "./format";
 import { fmtDuration } from "./RankRow";
+import { coverPath } from "./Cover";
 
 // 공유용 이미지 카드: 기간별 요약 / Top 순위 / 청취 시계, 그리고 앨범·아티스트·곡 한 개의 카드를 canvas 로 그려 PNG 로 저장한다.
 // 화면 곳곳의 공유 버튼(ShareButton)이 이 대화상자를 연다 (ShareProvider 가 App 전체를 감싼다).
@@ -64,7 +65,8 @@ function loadImage(url: string | null): Promise<HTMLImageElement | null> {
       img.crossOrigin = "anonymous";
       img.onload = () => resolve(img);
       img.onerror = () => resolve(null);
-      img.src = `${BASE_URL}/api/image-proxy?url=${encodeURIComponent(url)}`;
+      // 직접 올린 커버("/api/cover-file/...")는 우리 서버 파일이라 바로, 외부 주소는 프록시로 받는다
+      img.src = url.startsWith("/") ? `${BASE_URL}${url}` : `${BASE_URL}/api/image-proxy?url=${encodeURIComponent(url)}`;
     });
     imageMemo.set(url, p);
   }
@@ -73,11 +75,8 @@ function loadImage(url: string | null): Promise<HTMLImageElement | null> {
 
 async function coverUrl(kind: "album" | "artist", artist: string | null, album?: string | null): Promise<string | null> {
   try {
-    const path =
-      kind === "artist"
-        ? `/api/artist-art?artist=${encodeURIComponent(artist ?? "")}`
-        : `/api/album-art?artist=${encodeURIComponent(artist ?? "")}&album=${encodeURIComponent(album ?? "")}`;
-    if (!artist || (kind === "album" && !album)) return null;
+    const path = coverPath(kind, artist, album);
+    if (!path) return null;
     const d = await (await fetch(`${BASE_URL}${path}`)).json();
     return (d.url as string | null) ?? null;
   } catch {

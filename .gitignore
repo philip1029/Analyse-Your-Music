@@ -5,3 +5,5 @@ data/*.json
 backend/cache/
 __pycache__/
 **/.DS_Store
+# 직접 올린 앨범 커버·아티스트 사진 (개인 데이터)
+data/covers/

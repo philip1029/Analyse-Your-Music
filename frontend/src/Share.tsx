@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { BASE_URL } from "./config";
-import { fmtHM, withWeekday } from "./format";
+import { agoText, fmtHM, withWeekday } from "./format";
+import { fmtDuration } from "./RankRow";
 
-// 공유용 이미지 카드: 기간별 요약 / Top 순위 / 청취 시계를 canvas 로 그려 PNG 로 저장한다.
+// 공유용 이미지 카드: 기간별 요약 / Top 순위 / 청취 시계, 그리고 앨범·아티스트·곡 한 개의 카드를 canvas 로 그려 PNG 로 저장한다.
+// 화면 곳곳의 공유 버튼(ShareButton)이 이 대화상자를 연다 (ShareProvider 가 App 전체를 감싼다).
 // 커버 이미지는 CORS 때문에 백엔드 이미지 프록시(/api/image-proxy)로 받아야 canvas 를 저장할 수 있다.
 
 const W = 1080;
@@ -421,27 +423,264 @@ function drawClock(ctx: Ctx, r: Report, t: Theme, metric: Metric) {
   footer(ctx, t);
 }
 
-// ---------------------------------------------------------------- 화면
+// ---------------------------------------------------------------- 카드: 앨범 / 아티스트 / 곡 (대상 하나)
+
+type SubjectCard = {
+  kindLabel: string;                                   // "앨범" / "아티스트" / "곡"
+  title: string;
+  subtitle: string;
+  round: boolean;                                      // 아티스트 사진은 원형
+  coverKind: "album" | "artist";
+  coverArtist: string | null;
+  coverAlbum: string | null;
+  stats: { label: string; value: string; sub?: string }[];
+  listTitle: string | null;
+  list: { name: string; count: number }[];
+  monthly: { months: string[]; counts: number[] } | null;
+  fileKey: string;
+};
+
+type Monthly = { months: string[]; counts: number[] };
+type RawItem = { name: string; artist?: string | null; count: number };
+
+const slug = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "").slice(0, 40);
+
+function when(label: string, date: string) {
+  return { label, value: date, sub: agoText(date) };
+}
+
+function normalizeAlbum(d: { name: string; artist: string | null; scrobbles: number; seconds: number; tracks_count: number; first_played: string; last_played: string; tracks: RawItem[]; monthly: Monthly }): SubjectCard {
+  return {
+    kindLabel: "앨범",
+    title: d.name,
+    subtitle: d.artist ?? "",
+    round: false,
+    coverKind: "album",
+    coverArtist: d.artist,
+    coverAlbum: d.name,
+    stats: [
+      { label: "스크로블", value: d.scrobbles.toLocaleString() },
+      { label: "청취 시간", value: fmtHM(d.seconds) },
+      { label: "트랙", value: `${d.tracks_count}곡` },
+      when("처음 들은 날", d.first_played),
+      when("마지막으로 들은 날", d.last_played),
+    ],
+    listTitle: "Top 트랙",
+    list: d.tracks.slice(0, 5).map((t) => ({ name: t.name, count: t.count })),
+    monthly: d.monthly,
+    fileKey: `album-${slug(d.name)}`,
+  };
+}
+
+function normalizeArtist(d: { name: string; scrobbles: number; seconds: number; albums_count: number; tracks_count: number; first_played: string; last_played: string; albums: RawItem[]; monthly: Monthly }): SubjectCard {
+  return {
+    kindLabel: "아티스트",
+    title: d.name,
+    subtitle: "",
+    round: true,
+    coverKind: "artist",
+    coverArtist: d.name,
+    coverAlbum: null,
+    stats: [
+      { label: "스크로블", value: d.scrobbles.toLocaleString() },
+      { label: "청취 시간", value: fmtHM(d.seconds) },
+      { label: "앨범 · 트랙", value: `${d.albums_count} · ${d.tracks_count}` },
+      when("처음 들은 날", d.first_played),
+      when("마지막으로 들은 날", d.last_played),
+    ],
+    listTitle: "Top 앨범",
+    list: d.albums.slice(0, 5).map((a) => ({ name: a.name, count: a.count })),
+    monthly: d.monthly,
+    fileKey: `artist-${slug(d.name)}`,
+  };
+}
+
+function normalizeTrack(d: { name: string; artist: string | null; album: string | null; scrobbles: number; seconds: number; duration?: number | null; first_played: string; last_played: string; albums: { name: string; count: number }[]; monthly: Monthly }): SubjectCard {
+  return {
+    kindLabel: "곡",
+    title: d.name,
+    subtitle: [d.artist, d.album].filter(Boolean).join(" · "),
+    round: false,
+    coverKind: "album",
+    coverArtist: d.artist,
+    coverAlbum: d.album,
+    stats: [
+      { label: "스크로블", value: d.scrobbles.toLocaleString() },
+      { label: "청취 시간", value: fmtHM(d.seconds) },
+      { label: "곡 길이", value: d.duration ? fmtDuration(d.duration) : "-" },
+      when("처음 들은 날", d.first_played),
+      when("마지막으로 들은 날", d.last_played),
+    ],
+    listTitle: d.albums.length > 1 ? "수록 앨범" : null,
+    list: d.albums.slice(0, 5).map((a) => ({ name: a.name, count: a.count })),
+    monthly: d.monthly,
+    fileKey: `track-${slug(d.name)}`,
+  };
+}
+
+const loadSubjectAssets = (c: SubjectCard): Promise<Img> => cover(c.coverKind, c.coverArtist, c.coverAlbum);
+
+function drawSubject(ctx: Ctx, c: SubjectCard, t: Theme, username: string | null, image: Img) {
+  frame(ctx, t);
+  ctx.fillStyle = t.sub;
+  setFont(ctx, 36, 500);
+  ctx.fillText(`${username ? username + " · " : ""}${c.kindLabel}`, PAD, PAD + 40);
+
+  // 커버(또는 아티스트 사진) + 오른쪽 통계 다섯 칸
+  const cs = 540;
+  const cy = 190;
+  drawCover(ctx, image, PAD, cy, cs, cs, t, c.round, c.title);
+  const sx = PAD + cs + 48;
+  const sw = W - PAD - sx;
+  let sy = cy + 40;                                    // 부가 줄(상대 날짜)이 있는 칸은 더 높게 잡는다
+  c.stats.forEach((st) => {
+    const y = sy;
+    sy += st.sub ? 134 : 92;
+    ctx.fillStyle = t.sub;
+    setFont(ctx, 28, 500);
+    ctx.fillText(st.label, sx, y);
+    ctx.fillStyle = t.fg;
+    fitFont(ctx, st.value, sw, 50, 800, 28);
+    ctx.fillText(st.value, sx, y + 46);
+    if (st.sub) {
+      ctx.fillStyle = t.sub;
+      setFont(ctx, 28, 400);
+      ctx.fillText(st.sub, sx, y + 84);
+    }
+  });
+
+  // 제목 / 부제
+  ctx.fillStyle = t.fg;
+  setFont(ctx, 84, 800);
+  let y = drawWrapped(ctx, c.title, PAD, cy + cs + 120, W - 2 * PAD, 100, 2);
+  if (c.subtitle) {
+    ctx.fillStyle = t.sub;
+    setFont(ctx, 42, 500);
+    ctx.fillText(clip(ctx, c.subtitle, W - 2 * PAD), PAD, y - 20);
+    y += 36;
+  }
+
+  // 목록 (Top 트랙 / Top 앨범 / 수록 앨범)
+  let listBottom = y + 30;
+  if (c.listTitle && c.list.length) {
+    let ly = Math.max(y + 60, 1090);
+    ctx.fillStyle = t.sub;
+    setFont(ctx, 30, 600);
+    ctx.fillText(c.listTitle, PAD, ly);
+    ly += 24;
+    const max = Math.max(1, ...c.list.map((x) => x.count));
+    c.list.forEach((it, i) => {
+      const ry = ly + i * 84;
+      ctx.fillStyle = t.sub;
+      setFont(ctx, 34, 600);
+      ctx.textAlign = "right";
+      ctx.fillText(String(i + 1), PAD + 36, ry + 56);
+      ctx.textAlign = "left";
+      ctx.fillStyle = t.fg;
+      setFont(ctx, 36, 600);
+      ctx.fillText(clip(ctx, it.name, 480), PAD + 64, ry + 56);
+      const bx = PAD + 570;
+      const bw = Math.max(14, ((W - PAD - bx - 150) * it.count) / max);
+      ctx.fillStyle = t.accent;
+      ctx.globalAlpha = 0.85;
+      roundRectPath(ctx, bx, ry + 28, bw, 34, 6);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = t.fg;
+      setFont(ctx, 30, 600);
+      ctx.fillText(`${it.count.toLocaleString()}회`, bx + bw + 14, ry + 56);
+    });
+    listBottom = ly + c.list.length * 84;
+  }
+
+  // 월별 청취 막대 그래프 (최근 36개월까지)
+  if (c.monthly && c.monthly.months.length) {
+    const months = c.monthly.months.slice(-36);
+    const counts = c.monthly.counts.slice(-36);
+    const top = Math.max(listBottom + 70, 1490);
+    const base = H - PAD - 90;
+    const hMax = Math.max(80, base - top - 60);
+    ctx.fillStyle = t.sub;
+    setFont(ctx, 30, 600);
+    ctx.fillText(c.monthly.months.length > 36 ? "월별 청취 (최근 36개월)" : "월별 청취", PAD, top);
+    const max = Math.max(1, ...counts);
+    const bw = (W - 2 * PAD) / months.length;
+    counts.forEach((v, i) => {
+      const bh = v === 0 ? 3 : Math.max(6, (v / max) * hMax);
+      ctx.fillStyle = v === 0 ? t.sub : t.accent;
+      ctx.globalAlpha = v === 0 ? 0.35 : 0.9;
+      ctx.fillRect(PAD + i * bw + 1.5, base - bh, Math.max(2, bw - 3), bh);
+    });
+    ctx.globalAlpha = 1;
+    setFont(ctx, 26, 400);
+    ctx.fillStyle = t.sub;
+    ctx.fillText(months[0], PAD, base + 38);
+    ctx.textAlign = "right";
+    ctx.fillText(months[months.length - 1], W - PAD, base + 38);
+    ctx.textAlign = "left";
+  }
+  footer(ctx, t);
+}
+
+// ---------------------------------------------------------------- 대화상자 / 공유 버튼
+
+export type ShareSpec =
+  | { kind: "period"; card: CardType; period?: Period; cat?: Cat; metric?: Metric }
+  | { kind: "album"; name: string; artist: string | null }
+  | { kind: "artist"; name: string }
+  | { kind: "track"; name: string; artist: string | null; album?: string | null };
 
 const PERIOD_LABELS: [Period, string][] = [["all", "전체 기간"], ["year", "연간"], ["month", "월간"], ["week", "주간"]];
 const CARD_LABELS: [CardType, string][] = [["summary", "요약"], ["top", "Top 순위"], ["clock", "청취 시계"]];
 
-export function Share() {
+const pill = (active: boolean) => ({ padding: "0.35rem 0.9rem", fontWeight: active ? 700 : 400, border: active ? "2px solid #8884d8" : "1px solid #666" });
+
+let usernameMemo: Promise<string | null> | null = null;
+const fetchUsername = () => {
+  if (!usernameMemo) {
+    usernameMemo = fetch(`${BASE_URL}/api/me`)
+      .then((r) => r.json())
+      .then((d) => (d.username as string | null) ?? null)
+      .catch(() => null);
+  }
+  return usernameMemo;
+};
+
+function ShareDialog({ spec, onClose }: { spec: ShareSpec; onClose: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [period, setPeriod] = useState<Period>("month");
+  const isPeriod = spec.kind === "period";
+  const [period, setPeriod] = useState<Period>(spec.kind === "period" ? spec.period ?? "month" : "all");
   const [periods, setPeriods] = useState<PeriodOption[]>([]);
   const [anchor, setAnchor] = useState<string>("");
-  const [card, setCard] = useState<CardType>("summary");
-  const [cat, setCat] = useState<Cat>("artist");
-  const [metric, setMetric] = useState<Metric>("plays");
+  const [card, setCard] = useState<CardType>(spec.kind === "period" ? spec.card : "summary");
+  const [cat, setCat] = useState<Cat>(spec.kind === "period" ? spec.cat ?? "artist" : "artist");
+  const [metric, setMetric] = useState<Metric>(spec.kind === "period" ? spec.metric ?? "plays" : "plays");
   const [themeId, setThemeId] = useState("dark");
   const [report, setReport] = useState<Report | null>(null);
+  const [subject, setSubject] = useState<SubjectCard | null>(null);
+  const [username, setUsername] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drawing, setDrawing] = useState(false);
 
-  // 기간 목록 (전체 기간은 목록이 없다)
   useEffect(() => {
-    if (period === "all") {
+    fetchUsername().then(setUsername);
+  }, []);
+
+  // ESC 로 닫기, 열려 있는 동안 뒤 화면 스크롤 막기
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  // 기간 목록 (기간 카드이고 전체 기간이 아닐 때)
+  useEffect(() => {
+    if (!isPeriod || period === "all") {
       setPeriods([]);
       setAnchor("");
       return;
@@ -460,32 +699,51 @@ export function Share() {
     return () => {
       cancelled = true;
     };
-  }, [period]);
+  }, [isPeriod, period]);
 
-  // 카드 데이터
+  // 카드 데이터: 기간 카드는 리포트, 앨범·아티스트·곡 카드는 해당 상세 정보
   useEffect(() => {
-    if (period !== "all" && !anchor) return;
     let cancelled = false;
     setError(null);
-    fetch(`${BASE_URL}/api/report-card?period=${period}${period !== "all" ? `&anchor=${encodeURIComponent(anchor)}` : ""}`)
-      .then((res) => res.json())
-      .then((d) => {
-        if (cancelled) return;
-        if (d.error) {
-          setReport(null);
-          setError(d.error);
-        } else setReport(d as Report);
-      })
-      .catch((e) => !cancelled && setError(e.message));
+    const fail = (e: Error) => !cancelled && setError(e.message);
+    if (spec.kind === "period") {
+      if (period !== "all" && !anchor) return;
+      fetch(`${BASE_URL}/api/report-card?period=${period}${period !== "all" ? `&anchor=${encodeURIComponent(anchor)}` : ""}`)
+        .then((res) => res.json())
+        .then((d) => {
+          if (cancelled) return;
+          if (d.error) {
+            setReport(null);
+            setError(d.error);
+          } else setReport(d as Report);
+        })
+        .catch(fail);
+    } else {
+      const q = new URLSearchParams({ name: spec.name });
+      if (spec.kind !== "artist" && spec.artist) q.set("artist", spec.artist);
+      if (spec.kind === "track") {
+        q.set("limit", "1");
+        if (spec.album) q.set("album", spec.album);
+      }
+      fetch(`${BASE_URL}/api/library/${spec.kind}?${q}`)
+        .then((res) => res.json())
+        .then((d) => {
+          if (cancelled) return;
+          if (d.error) return setError(d.error);
+          setSubject(spec.kind === "album" ? normalizeAlbum(d) : spec.kind === "artist" ? normalizeArtist(d) : normalizeTrack(d));
+        })
+        .catch(fail);
+    }
     return () => {
       cancelled = true;
     };
-  }, [period, anchor]);
+  }, [spec, period, anchor]);
 
   // 그리기
+  const ready = isPeriod ? report : subject;
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !report) return;
+    if (!canvas || !ready) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const theme = THEMES.find((t) => t.id === themeId) ?? THEMES[0];
@@ -493,17 +751,23 @@ export function Share() {
     setDrawing(true);
     (async () => {
       // 1) 이미지 받기 (여기까지는 다른 요청이 끼어들어도 괜찮다)  2) 취소되지 않았을 때만 await 없이 한 번에 그린다
-      const images = card === "summary" ? await loadSummaryAssets(report) : card === "top" ? await loadTopAssets(report, cat, metric) : [];
-      if (cancelled) return;
-      if (card === "summary") drawSummary(ctx, report, theme, images);
-      else if (card === "top") drawTop(ctx, report, theme, cat, metric, images);
-      else drawClock(ctx, report, theme, metric);
+      if (isPeriod && report) {
+        const images = card === "summary" ? await loadSummaryAssets(report) : card === "top" ? await loadTopAssets(report, cat, metric) : [];
+        if (cancelled) return;
+        if (card === "summary") drawSummary(ctx, report, theme, images);
+        else if (card === "top") drawTop(ctx, report, theme, cat, metric, images);
+        else drawClock(ctx, report, theme, metric);
+      } else if (subject) {
+        const image = await loadSubjectAssets(subject);
+        if (cancelled) return;
+        drawSubject(ctx, subject, theme, username, image);
+      }
       setDrawing(false);
     })();
     return () => {
       cancelled = true;
     };
-  }, [report, card, cat, metric, themeId]);
+  }, [isPeriod, ready, report, subject, card, cat, metric, themeId, username]);
 
   const handleDownload = () => {
     const canvas = canvasRef.current;
@@ -513,100 +777,134 @@ export function Share() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `analyse-your-music_${card}_${period}${anchor ? "_" + anchor : ""}.png`;
+      a.download = `analyse-your-music_${isPeriod ? `${card}_${period}${anchor ? "_" + anchor : ""}` : subject?.fileKey ?? spec.kind}.png`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     }, "image/png");
   };
 
-  const pill = (active: boolean) => ({ padding: "0.35rem 0.9rem", fontWeight: active ? 700 : 400, border: active ? "2px solid #8884d8" : "1px solid #666" });
-
+  const row = { display: "flex", gap: "0.5rem", flexWrap: "wrap" as const, justifyContent: "center", alignItems: "center" };
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto" }}>
-      <h2>공유 이미지</h2>
-      <p style={{ color: "#888", marginTop: 0, fontSize: "0.9rem" }}>
-        기간을 고르고 카드 종류와 색을 정하면 PNG 이미지로 저장할 수 있어요 (1080×1920, 스토리 크기).
-      </p>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.8rem", alignItems: "center", marginBottom: "1rem" }}>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
-          {CARD_LABELS.map(([c, text]) => (
-            <button key={c} onClick={() => setCard(c)} style={pill(card === c)}>
-              {text}
-            </button>
-          ))}
+    <div
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 1000, overflowY: "auto", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "24px 12px" }}
+    >
+      <div role="dialog" aria-label="공유 이미지" style={{ background: "#1c1d23", color: "#eee", borderRadius: 12, padding: "1rem 1.2rem 1.4rem", width: "min(100%, 560px)", boxShadow: "0 8px 40px rgba(0,0,0,0.6)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+          <h3 style={{ margin: 0 }}>공유 이미지</h3>
+          <button onClick={onClose} style={{ padding: "0.3rem 0.7rem" }} aria-label="닫기">
+            ✕ 닫기
+          </button>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center", alignItems: "center" }}>
-          {PERIOD_LABELS.map(([p, text]) => (
-            <button key={p} onClick={() => setPeriod(p)} style={pill(period === p)}>
-              {text}
-            </button>
-          ))}
-          {period !== "all" && periods.length > 0 && (
-            <select value={anchor} onChange={(e) => setAnchor(e.target.value)}>
-              {periods.map((p) => (
-                <option key={p.key} value={p.key}>
-                  {p.label} ({p.scrobbles.toLocaleString()}회{p.partial ? " · 일부 기간" : ""})
-                </option>
-              ))}
-            </select>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.7rem", alignItems: "center", marginBottom: "1rem" }}>
+          {spec.kind === "period" && (
+            <>
+              <div style={row}>
+                {CARD_LABELS.map(([c, text]) => (
+                  <button key={c} onClick={() => setCard(c)} style={pill(card === c)}>
+                    {text}
+                  </button>
+                ))}
+              </div>
+              <div style={row}>
+                {PERIOD_LABELS.map(([p, text]) => (
+                  <button key={p} onClick={() => setPeriod(p)} style={pill(period === p)}>
+                    {text}
+                  </button>
+                ))}
+                {period !== "all" && periods.length > 0 && (
+                  <select value={anchor} onChange={(e) => setAnchor(e.target.value)}>
+                    {periods.map((p) => (
+                      <option key={p.key} value={p.key}>
+                        {p.label} ({p.scrobbles.toLocaleString()}회{p.partial ? " · 일부 기간" : ""})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {card === "top" && (
+                <div style={row}>
+                  {(["artist", "album", "track"] as Cat[]).map((c) => (
+                    <button key={c} onClick={() => setCat(c)} style={pill(cat === c)}>
+                      {c === "artist" ? "아티스트" : c === "album" ? "앨범" : "트랙"}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {card !== "summary" && (
+                <div style={row}>
+                  {([["plays", "재생 횟수"], ["time", "청취 시간"]] as [Metric, string][]).map(([m, text]) => (
+                    <button key={m} onClick={() => setMetric(m)} style={pill(metric === m)}>
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
           )}
-        </div>
-        {card === "top" && (
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
-            {(["artist", "album", "track"] as Cat[]).map((c) => (
-              <button key={c} onClick={() => setCat(c)} style={pill(cat === c)}>
-                {c === "artist" ? "아티스트" : c === "album" ? "앨범" : "트랙"}
-              </button>
+          <div style={{ ...row, gap: "0.6rem" }}>
+            {THEMES.map((t) => (
+              <button
+                key={t.id}
+                aria-label={`색상 ${t.id}`}
+                title={t.id}
+                onClick={() => setThemeId(t.id)}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  padding: 0,
+                  background: t.bg,
+                  border: `3px solid ${t.border ?? t.bg}`,
+                  outline: themeId === t.id ? "3px solid #8884d8" : "none",
+                  outlineOffset: 2,
+                  cursor: "pointer",
+                }}
+              />
             ))}
           </div>
-        )}
-        {card !== "summary" && (
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "center" }}>
-            {([["plays", "재생 횟수"], ["time", "청취 시간"]] as [Metric, string][]).map(([m, text]) => (
-              <button key={m} onClick={() => setMetric(m)} style={pill(metric === m)}>
-                {text}
-              </button>
-            ))}
-          </div>
-        )}
-        <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", justifyContent: "center" }}>
-          {THEMES.map((t) => (
-            <button
-              key={t.id}
-              aria-label={`색상 ${t.id}`}
-              title={t.id}
-              onClick={() => setThemeId(t.id)}
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: "50%",
-                padding: 0,
-                background: t.bg,
-                border: `3px solid ${t.border ?? t.bg}`,
-                outline: themeId === t.id ? "3px solid #8884d8" : "none",
-                outlineOffset: 2,
-                cursor: "pointer",
-              }}
-            />
-          ))}
         </div>
-      </div>
 
-      {error && <p style={{ color: "#d66", textAlign: "center" }}>{error}</p>}
-      {!report && !error && <p style={{ color: "#999", textAlign: "center" }}>불러오는 중...</p>}
+        {error && <p style={{ color: "#d66", textAlign: "center" }}>{error}</p>}
+        {!ready && !error && <p style={{ color: "#999", textAlign: "center" }}>불러오는 중...</p>}
 
-      <div style={{ display: report ? "flex" : "none", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
-        <canvas
-          ref={canvasRef}
-          width={W}
-          height={H}
-          style={{ width: "min(100%, 360px)", height: "auto", aspectRatio: `${W} / ${H}`, borderRadius: 6, boxShadow: "0 2px 14px rgba(0,0,0,0.4)", opacity: drawing ? 0.6 : 1 }}
-        />
-        <button onClick={handleDownload} disabled={!report || drawing} style={{ padding: "0.6rem 1.6rem", fontWeight: 700 }}>
-          ⬇ PNG 다운로드
-        </button>
+        <div style={{ display: ready ? "flex" : "none", flexDirection: "column", alignItems: "center", gap: "1rem" }}>
+          <canvas
+            ref={canvasRef}
+            width={W}
+            height={H}
+            style={{ width: "min(100%, 340px)", height: "auto", aspectRatio: `${W} / ${H}`, borderRadius: 6, boxShadow: "0 2px 14px rgba(0,0,0,0.4)", opacity: drawing ? 0.6 : 1 }}
+          />
+          <button onClick={handleDownload} disabled={!ready || drawing} style={{ padding: "0.6rem 1.6rem", fontWeight: 700 }}>
+            ⬇ PNG 다운로드 (1080×1920)
+          </button>
+        </div>
       </div>
     </div>
+  );
+}
+
+const ShareContext = createContext<(spec: ShareSpec) => void>(() => {});
+
+// 앱 전체를 감싸서 어디서든 useShare()/ShareButton 으로 공유 대화상자를 열 수 있게 한다
+export function ShareProvider({ children }: { children: ReactNode }) {
+  const [spec, setSpec] = useState<ShareSpec | null>(null);
+  return (
+    <ShareContext.Provider value={setSpec}>
+      {children}
+      {spec && <ShareDialog key={JSON.stringify(spec)} spec={spec} onClose={() => setSpec(null)} />}
+    </ShareContext.Provider>
+  );
+}
+
+export const useShare = () => useContext(ShareContext);
+
+export function ShareButton({ spec, label = "🖼 공유 이미지", title = "이미지로 저장" }: { spec: ShareSpec; label?: string; title?: string }) {
+  const open = useShare();
+  return (
+    <button onClick={() => open(spec)} title={title} style={{ padding: "0.3rem 0.8rem", fontSize: "0.85rem" }}>
+      {label}
+    </button>
   );
 }

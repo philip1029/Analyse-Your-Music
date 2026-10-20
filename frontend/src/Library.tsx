@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } 
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { LINE, RankRow, fmtDuration } from "./RankRow";
-import { fmtHM } from "./format";
+import { agoText, fmtHM } from "./format";
+import { ShareButton } from "./Share";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
 
@@ -12,9 +13,9 @@ type Item = { name: string; artist: string | null; album?: string | null; count:
 
 type ListResult = { category: Category; total: number; total_plays: number; offset: number; items: Item[] };
 
-type ArtistDetail = { name: string; scrobbles: number; seconds: number; albums_count: number; tracks_count: number; albums: Item[]; tracks: Item[] };
+type ArtistDetail = { name: string; scrobbles: number; seconds: number; first_played: string; last_played: string; albums_count: number; tracks_count: number; albums: Item[]; tracks: Item[] };
 
-type AlbumDetail = { name: string; artist: string | null; scrobbles: number; seconds: number; tracks_count: number; tracks: Item[] };
+type AlbumDetail = { name: string; artist: string | null; scrobbles: number; seconds: number; first_played: string; last_played: string; tracks_count: number; tracks: Item[] };
 
 type Play = { time: string; album: string | null; artist: string | null; source: string | null };
 
@@ -45,11 +46,12 @@ const PREVIEW = 10;
 const label: CSSProperties = { fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.03em", color: "#999", textTransform: "uppercase" };
 const bigNumber: CSSProperties = { fontSize: "1.5rem", fontWeight: 700 };
 
-function Stat({ title, value }: { title: string; value: string | number }) {
+function Stat({ title, value, sub }: { title: string; value: string | number; sub?: string }) {
   return (
     <div>
       <div style={label}>{title}</div>
       <div style={bigNumber}>{typeof value === "number" ? value.toLocaleString() : value}</div>
+      {sub && <div style={{ color: "#999", fontSize: "0.85rem" }}>{sub}</div>}
     </div>
   );
 }
@@ -136,6 +138,9 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
               </button>
             ))}
             {metric === "time" && <span style={{ color: "#999", fontSize: "0.8rem" }}>스크로블 횟수 × 곡 길이 (끝까지 들었다고 가정한 추정치)</span>}
+            <span style={{ marginLeft: "auto" }}>
+              <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: view.category, metric }} label="🖼 Top 이미지" />
+            </span>
           </div>
           <ListView key={`${view.category}|${metric}`} category={view.category} metric={metric} query={query} onOpen={(it) => openItem(view.category, it)} />
         </>
@@ -247,13 +252,16 @@ function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <Cover kind="artist" artist={data.name} size={72} />
-        <h2 style={{ margin: 0 }}>{data.name}</h2>
+        <h2 style={{ margin: 0, flex: 1 }}>{data.name}</h2>
+        <ShareButton spec={{ kind: "artist", name: data.name }} />
       </div>
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />
         <Stat title="Albums" value={data.albums_count} />
         <Stat title="Tracks" value={data.tracks_count} />
+        <Stat title="First" value={data.first_played} sub={agoText(data.first_played)} />
+        <Stat title="Last" value={data.last_played} sub={agoText(data.last_played)} />
       </div>
       <RankSection title="Albums" items={data.albums} kind="album" onOpen={(i) => onOpen("album", i)} />
       <RankSection title="Tracks" items={data.tracks} kind="track" onOpen={(i) => onOpen("track", i)} />
@@ -281,15 +289,18 @@ function AlbumView({
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <Cover kind="album" artist={data.artist} album={data.name} size={72} />
-        <div>
+        <div style={{ flex: 1 }}>
           <h2 style={{ margin: 0 }}>{data.name}</h2>
           {data.artist && <LinkButton onClick={() => onArtist(data.artist as string)}>{data.artist}</LinkButton>}
         </div>
+        <ShareButton spec={{ kind: "album", name: data.name, artist: data.artist }} />
       </div>
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />
         <Stat title="Tracks" value={data.tracks_count} />
+        <Stat title="First" value={data.first_played} sub={agoText(data.first_played)} />
+        <Stat title="Last" value={data.last_played} sub={agoText(data.last_played)} />
       </div>
       <RankSection title="Tracks" items={data.tracks} kind="track" onOpen={(i) => onOpen("track", i, true)} />
     </>
@@ -346,7 +357,7 @@ function TrackView({
     <>
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <Cover kind="album" artist={head.artist} album={head.album} size={72} />
-        <div>
+        <div style={{ flex: 1 }}>
           <h2 style={{ margin: 0 }}>
             {head.name}
             {head.duration ? <span style={{ fontWeight: 400, color: "#999" }}> ({fmtDuration(head.duration)})</span> : null}
@@ -361,12 +372,13 @@ function TrackView({
             )}
           </div>
         </div>
+        <ShareButton spec={{ kind: "track", name: head.name, artist: head.artist, album: scope }} />
       </div>
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={head.scrobbles} />
         <Stat title="Time" value={fmtHM(head.seconds)} />
-        <Stat title="First" value={head.first_played} />
-        <Stat title="Last" value={head.last_played} />
+        <Stat title="First" value={head.first_played} sub={agoText(head.first_played)} />
+        <Stat title="Last" value={head.last_played} sub={agoText(head.last_played)} />
       </div>
       {head.albums.length > 1 && (
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", marginBottom: "1rem" }}>

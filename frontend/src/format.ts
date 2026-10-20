@@ -20,3 +20,24 @@ export function withWeekday(date: string): string {
   const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();   // UTC 로 계산해 시간대 영향이 없다
   return `${date} (${WEEKDAYS_KO[day]})`;
 }
+
+// "2026-03-05" -> "7개월 전" / "1년 2개월 전" / "12일 전" / "오늘". today 는 테스트용 (기본: 지금, 한국 시간 날짜 기준).
+export function agoText(date: string, today?: string): string {
+  const parse = (d: string) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(d);
+    return m ? { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) } : null;
+  };
+  const now = today ?? new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);   // KST 날짜
+  const a = parse(date);
+  const b = parse(now);
+  if (!a || !b) return "";
+  let months = (b.y - a.y) * 12 + (b.mo - a.mo) - (b.d < a.d ? 1 : 0);
+  if (months < 0) months = 0;
+  if (months === 0) {
+    const days = Math.round((Date.UTC(b.y, b.mo - 1, b.d) - Date.UTC(a.y, a.mo - 1, a.d)) / 86400000);
+    return days <= 0 ? "오늘" : `${days}일 전`;
+  }
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  return y ? `${y}년${m ? ` ${m}개월` : ""} 전` : `${m}개월 전`;
+}

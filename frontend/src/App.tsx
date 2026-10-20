@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { Library } from "./Library";
-import { Share } from "./Share";
+import { ShareButton, ShareProvider } from "./Share";
 import { RankRow, type RankKind } from "./RankRow";
 import { fmtHM, makeFmt, withWeekday, type Metric } from "./format";
 import {
@@ -159,14 +159,13 @@ type Diversity = {
   album: DiversityMetric;
 };
 
-type TabId = "overview" | "listening" | "music" | "library" | "share" | "consistency" | "discovery" | "taste" | "data";
+type TabId = "overview" | "listening" | "music" | "library" | "consistency" | "discovery" | "taste" | "data";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "listening", label: "Listening" },
   { id: "music", label: "Music" },
   { id: "library", label: "Library" },
-  { id: "share", label: "Share" },
   { id: "consistency", label: "Consistency" },
   { id: "discovery", label: "Discovery" },
   { id: "taste", label: "Taste" },
@@ -1096,6 +1095,7 @@ const handleCopyPrompt = () => {
         : { artist: topArtists, track: topTracks, album: topAlbums, months: topMonths };
 
   return (
+    <ShareProvider>
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
       <h1>Analyse Your Music</h1>
 
@@ -1269,6 +1269,9 @@ const handleCopyPrompt = () => {
       {/* Overview 탭 */}
       {activeTab === "overview" && (
         <>
+          <div style={{ display: "flex", justifyContent: "flex-end", margin: "0.4rem 0" }}>
+            <ShareButton spec={{ kind: "period", card: "summary", period: "all" }} label="🖼 요약 이미지 만들기" />
+          </div>
           <ul>
             <li>Total Scrobbles: {stats.total_scrobbles}</li>
             <li>Unique Tracks: {stats.unique_tracks}</li>
@@ -1339,7 +1342,10 @@ const handleCopyPrompt = () => {
       {activeTab === "listening" && (
         <>
         <MetricToggle metric={metric} onChange={setMetric} />
-        <h2>청취 시계</h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
+          <h2 style={{ margin: "0.8rem 0" }}>청취 시계</h2>
+          <ShareButton spec={{ kind: "period", card: "clock", period: "all", metric }} />
+        </div>
         <ListeningClock data={hourlyData} format={fmtVal} noun={metric === "time" ? "청취 시간" : "스크로블"} />
 
           <h2>주간 {metric === "time" ? "청취 시간" : "스크로블"}</h2>
@@ -1427,7 +1433,10 @@ const handleCopyPrompt = () => {
               ["album", "Albums", shownTop.album],
             ] as [RankKind, string, TopItem[]][]).map(([kind, title, items]) => (
               <section key={kind} style={{ marginTop: "1.5rem" }}>
-                <h3 style={{ fontWeight: 400, marginBottom: "0.4rem" }}>{title}</h3>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", marginBottom: "0.4rem" }}>
+                  <h3 style={{ fontWeight: 400, margin: "0.6rem 0" }}>{title}</h3>
+                  <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: kind, metric: topMode === "time" ? "time" : "plays" }} />
+                </div>
                 {items.map((item, i) => {
                   const c = item.consistency;
                   const byEven = topMode === "even" && c?.evenness != null;
@@ -1450,9 +1459,6 @@ const handleCopyPrompt = () => {
           </div>
         </>
       )}
-
-      {/* Share 탭: 공유용 이미지 카드 (요약 / Top 순위 / 청취 시계) */}
-      {activeTab === "share" && <Share />}
 
       {/* Library 탭: Last.fm 라이브러리 같은 순위 목록과 상세 */}
       {activeTab === "library" && <Library query={buildQuery} />}
@@ -1844,6 +1850,7 @@ const handleCopyPrompt = () => {
         />
       )}
     </div>
+    </ShareProvider>
   );
 }
 

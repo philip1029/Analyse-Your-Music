@@ -15,6 +15,13 @@ def _top_album_per_key(df: pd.DataFrame, keys: pd.Series, wanted: set[str]) -> d
     return dict(zip(g["_key"], g["album"]))
 
 
+def _monthly(kst: pd.Series) -> dict:
+    """월별 청취 횟수: 처음 들은 달부터 마지막 달까지 (한 번도 안 들은 달은 0)."""
+    counts = kst.dt.strftime("%Y-%m").value_counts().sort_index()
+    months = [str(p) for p in pd.period_range(counts.index[0], counts.index[-1], freq="M")]
+    return {"months": months, "counts": [int(counts.get(m, 0)) for m in months]}
+
+
 def _seconds(rows: pd.DataFrame) -> int:
     """행들의 청취 시간(초): 재생마다 곡 길이를 더한다 (길이를 모르는 곡은 0)."""
     return int(attach_durations(rows)["dur_sec"].fillna(0).sum()) if len(rows) else 0
@@ -80,10 +87,14 @@ def artist_detail(df: pd.DataFrame, name: str) -> dict | None:
     ta = pd.DataFrame({"track": trk_names[both], "album": alb_names[both]}).groupby(["track", "album"]).size().reset_index(name="n")
     ta = ta.sort_values(["n", "album"], ascending=[False, True]).drop_duplicates("track")
     album_of = dict(zip(ta["track"], ta["album"]))
+    kst = pd.to_datetime(rows["utc_time"], utc=True, format="mixed").dt.tz_convert("Asia/Seoul")
     return {
         "name": name,
         "scrobbles": int(len(rows)),
         "seconds": _seconds(rows),
+        "first_played": kst.min().strftime("%Y-%m-%d"),     # 처음 / 마지막으로 들은 날 (KST)
+        "last_played": kst.max().strftime("%Y-%m-%d"),
+        "monthly": _monthly(kst),
         "albums_count": int(len(alb)),
         "tracks_count": int(len(trk)),
         "albums": [{"name": n, "artist": name, "count": int(c)} for n, c in alb.items()],
@@ -125,11 +136,15 @@ def album_detail(df: pd.DataFrame, artist: str | None, name: str) -> dict | None
     for tk, c in counts.items():
         tn, ta = shown[tk], dom_artist[tk] or None
         tracks.append({"name": tn, "artist": ta, "album": album_names.iloc[0], "count": int(c), "duration": durations.get(ta or "", tn)})
+    kst = pd.to_datetime(rows["utc_time"], utc=True, format="mixed").dt.tz_convert("Asia/Seoul")
     return {
         "name": album_names.iloc[0],
         "artist": artist,
         "scrobbles": int(len(rows)),
         "seconds": _seconds(rows),
+        "first_played": kst.min().strftime("%Y-%m-%d"),     # 이 앨범을 처음 / 마지막으로 들은 날 (KST)
+        "last_played": kst.max().strftime("%Y-%m-%d"),
+        "monthly": _monthly(kst),
         "tracks_count": len(tracks),
         "tracks": tracks,
     }
@@ -168,6 +183,7 @@ def track_detail(df: pd.DataFrame, artist: str | None, name: str, offset: int = 
         "seconds": _seconds(rows),
         "first_played": rows["_kst"].min().strftime("%Y-%m-%d"),
         "last_played": rows["_kst"].max().strftime("%Y-%m-%d"),
+        "monthly": _monthly(rows["_kst"]),
         "offset": offset,
         "plays": [
             {"time": r["_kst"].strftime("%Y-%m-%d %H:%M"), "album": r["album"] or None, "artist": r["artist"] or None,

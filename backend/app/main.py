@@ -618,6 +618,12 @@ def ai_prompt(start: str | None = None, end: str | None = None):
     return {"prompt": prompt_text}
 
 
+@app.get("/api/me")
+def me():
+    """공유 이미지 머리글 등에 쓰는 Last.fm 사용자 이름 (없으면 null)."""
+    return {"username": os.environ.get("USERNAME")}
+
+
 @app.get("/api/report-card")
 def report_card(period: str = "month", anchor: str | None = None):
     """공유 이미지용 한 기간(week/month/year/all)의 요약·순위·시간대별 청취량. 날짜 필터는 적용하지 않는다."""

@@ -133,6 +133,29 @@ class CreditClusterDetailTest(unittest.TestCase):
         top = album_detail(df, "VISUAL ARTS / Key", "Air OST")["tracks"][0]
         self.assertEqual(track_detail(df, top["artist"], top["name"], album="Air OST")["scrobbles"], top["count"])
 
+    def test_artist_page_reports_first_and_last_played_dates_in_kst(self):
+        d = artist_detail(credit_frame(), "VISUAL ARTS / Key")
+        self.assertEqual((d["first_played"], d["last_played"]), ("2026-03-01", "2026-03-05"))
+        late = pd.DataFrame([{"utc_time": "2026-04-01 15:00:00", "artist": "X", "album": "Al", "track": "T", "source": "L"}])
+        self.assertEqual(artist_detail(late, "X")["first_played"], "2026-04-02")             # UTC 15:00 = KST 다음 날 00:00
+
+    def test_monthly_counts_fill_empty_months_for_artist_album_and_track(self):
+        rows = [{"utc_time": t, "artist": "X", "album": "Al", "track": "T", "source": "L"}
+                for t in ("2026-01-05 03:00:00", "2026-01-06 03:00:00", "2026-04-01 03:00:00")]
+        df = pd.DataFrame(rows)
+        want = {"months": ["2026-01", "2026-02", "2026-03", "2026-04"], "counts": [2, 0, 0, 1]}
+        self.assertEqual(artist_detail(df, "X")["monthly"], want)
+        self.assertEqual(album_detail(df, "X", "Al")["monthly"], want)
+        self.assertEqual(track_detail(df, "X", "T")["monthly"], want)
+
+    def test_album_page_reports_first_and_last_played_dates_in_kst(self):
+        df = credit_frame()
+        a = album_detail(df, "VISUAL ARTS / Key", "Air OST")
+        self.assertEqual((a["first_played"], a["last_played"]), ("2026-02-01", "2026-03-05"))
+        # UTC 15:00 이후는 한국 시간으로 다음 날이다
+        late = pd.DataFrame([{"utc_time": "2026-04-01 16:00:00", "artist": "X", "album": "Late", "track": "T", "source": "L"}])
+        self.assertEqual(album_detail(late, "X", "Late")["first_played"], "2026-04-02")
+
     def test_artist_page_counts_case_variants_once(self):
         d = artist_detail(credit_frame(), "VISUAL ARTS / Key")
         self.assertEqual((d["tracks_count"], d["tracks"][0]["name"]), (2, "Tori no uta"))

@@ -26,12 +26,17 @@ last.fm 스크로블 CSV(uts,utc_time,artist,album,track,source)에서 애플 �
     않고 "보류(noncatalog_unverifiable)"로만 보고한다. (Last.fm 기록이 기준, 애플 로그는 참고)
     --no-catalog-check 로 이 예외를 끌 수 있다.
 [provisional] 애플 로그가 없는 구간 (로그 종료 이후 또는 로그를 못 받았을 때)
-  - 길이 일치 2회 묶음이면서 첫 행과 둘째 행이 모두 "다른 곡이 같은 초(±3초)에
-    시작한 행"과 겹치면 둘째 행 제거 (provisional:pair_both_clash).
-    이전 구간(로그로 확정) 통계: 이런 묶음의 85%가 가짜, 첫 행이 실제 시작일 확률 98.6%.
-    약 15%는 실제 청취일 수 있으므로 'provisional'로 표시하고, 애플 로그를 새로
+  - 길이 일치 2회 묶음이면서 둘째 행이 "다른 곡이 같은 초(±3초)에 시작한 행"과 겹치면
+    둘째 행 제거 (한 번에 한 곡만 재생되므로 겹친 둘째 행은 진짜 재생일 수 없다).
+      첫 행도 겹치면 provisional:pair_both_clash (더 강한 근거),
+      첫 행은 안 겹치면 provisional:pair_second_clash.
+    이전 구간(로그로 확정) 통계: 첫 행까지 겹친 묶음의 85%가 가짜, 첫 행이 실제 시작일 확률 98.6%.
+    일부는 실제 청취일 수 있으므로 'provisional'로 표시하고, 애플 로그를 새로
     받으면 해당 행을 되살려(reinstate) 로그로 다시 판정한다.
-  - 그 밖의 2회 묶음 / 3회 이상 묶음 / 곡 길이 불명 / 같은 초 충돌은 제거하지 않는다.
+    두 행이 모두 Last.fm(L) 기록인 쌍만 대상이다 (런이 L 행으로만 만들어진다).
+  - 그 밖의 2회 묶음(둘째 행이 안 겹침 포함) / 3회 이상 묶음 / 곡 길이 불명 / 같은 초 충돌은 제거하지 않는다.
+  - 로그가 덮는 구간(위 [log])에서는 이 규칙을 쓰지 않는다: 그 구간은 로그가 판정하고, 로그가 재생을 확인한
+    반복(ac >= 묶음 길이)은 겹침이 있어도 실제 청취로 본다.
 [exact_dup] uts+artist+track 이 완전히 같은 L 행은 뒤의 것을 제거 (같은 초에 같은
   곡이 두 번 시작될 수 없다).
 
@@ -286,8 +291,12 @@ def judge(rows, state, log, durations_factory, args):
                 add(rid, rule, "log-verified",
                     f"run={n};gap={run['gap']}s;apple_plays={ac};len_src={src}", floor)
         else:
-            if n == 2 and clash(run["track"], run["utses"][0]) and clash(run["track"], run["utses"][1]):
-                add(ids[1], "provisional:pair_both_clash", "provisional",
+            # 둘째 행이 다른 곡의 시작과 겹치면(±3초) 진짜 재생일 수 없다(한 번에 한 곡만 재생). 첫 행의 겹침 여부는
+            # 묻지 않지만, 둘 다 겹치면 더 강한 근거라 규칙 이름을 구분한다. 런은 L 행만으로 만들어지므로
+            # 두 행 모두 Last.fm 기록이다 (Apple 행이 낀 쌍은 같은 재생을 둘이 적은 것일 수 있어 대상이 아니다).
+            if n == 2 and clash(run["track"], run["utses"][1]):
+                both = clash(run["track"], run["utses"][0])
+                add(ids[1], "provisional:pair_both_clash" if both else "provisional:pair_second_clash", "provisional",
                     f"gap={run['gap']}s;len_src={src};first_uts={run['utses'][0]}", floor)
             else:
                 note("pair_other" if n == 2 else "run_3plus", run)

@@ -411,13 +411,6 @@ function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n
 
   return (
     <div ref={containerRef} style={{ position: "relative", display: "flex", alignItems: "center", gap: "2.5rem", flexWrap: "wrap" }}>
-      <style>{`
-        @keyframes clockWedgeGrow {
-          from { transform: scale(0); }
-          to { transform: scale(1); }
-        }
-      `}</style>
-
       <svg width={size} height={size}>
         {data.map((d, h) => {
           const startAngle = h * 15 + gapDeg / 2;
@@ -440,10 +433,6 @@ function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n
                 fill={interpolateColor("#bfdbfe", "#2563eb", ratio)}
                 stroke={isHovered ? "#111" : "none"}
                 strokeWidth={isHovered ? 1.5 : 0}
-                style={{
-                  transformOrigin: `${cx}px ${cy}px`,
-                  animation: `clockWedgeGrow 0.4s ease-out ${h * 0.02}s both`,
-                }}
               />
             )}
           </g>

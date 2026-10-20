@@ -117,9 +117,9 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
     lines.append("## 2-2. 청취 시간 기준 순위")
     for cat, name in [("artist", "아티스트"), ("track", "트랙"), ("album", "앨범")]:
         page = ranked_page(df, cat, 0, 10, "time")["items"]
-        label = lambda it: f"{it['artist']} - {it['name']}" if it.get("artist") and cat != "artist" else it["name"]  # noqa: E731
+        item_name = lambda it: f"{it['artist']} - {it['name']}" if it.get("artist") and cat != "artist" else it["name"]  # noqa: E731
         lines.append(f"### Top 10 {name} (청취 시간순)")
-        lines.append(_table(["순위", name, "청취 시간", "재생 횟수"], [[i, label(it), fmt_hm(it["seconds"]), it["count"]] for i, it in enumerate(page, 1)]))
+        lines.append(_table(["순위", name, "청취 시간", "재생 횟수"], [[i, item_name(it), fmt_hm(it["seconds"]), it["count"]] for i, it in enumerate(page, 1)]))
         lines.append("")
 
     # 3. 언어/지역권 트렌드

@@ -341,9 +341,9 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     lines.append(f"### 청취 시간 기준 Top 5 ({unit_cap})")
     for cat, name in [("artist", "아티스트"), ("track", "트랙"), ("album", "앨범")]:
         page = ranked_page(cur, cat, 0, 5, "time")["items"]
-        label = lambda it: f"{it['artist']} - {it['name']}" if it.get("artist") and cat != "artist" else it["name"]  # noqa: E731
+        item_name = lambda it: f"{it['artist']} - {it['name']}" if it.get("artist") and cat != "artist" else it["name"]  # noqa: E731
         lines.append(f"#### {name}")
-        lines.append(_table(["순위", name, "청취 시간", "재생 횟수"], [[i, label(it), fmt_hm(it["seconds"]), it["count"]] for i, it in enumerate(page, 1)]))
+        lines.append(_table(["순위", name, "청취 시간", "재생 횟수"], [[i, item_name(it), fmt_hm(it["seconds"]), it["count"]] for i, it in enumerate(page, 1)]))
     lines.append("")
 
     # 4. 신규 발견 / 복귀

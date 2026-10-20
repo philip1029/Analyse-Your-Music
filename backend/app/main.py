@@ -18,6 +18,7 @@ from app.lastfm import cover_overrides
 from app.analysis.cover_audit import audit_albums, check_unchecked
 from app.lastfm.image_proxy import fetch_image
 from app.analysis.report_card import build_report_card
+from app.analysis.overview_cards import build_overview_cards
 from app.lastfm.artist_art import get_artist_art
 from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
@@ -113,6 +114,15 @@ def _grouped(df: pd.DataFrame, by: str, metric: str) -> pd.Series:
     if metric == "time":
         return weights(df, "time").groupby(df[by]).sum().round(1)
     return df.groupby(by).size()
+
+
+@app.get("/api/overview/cards")
+def overview_cards(start: str | None = None, end: str | None = None):
+    """Overview 통계 카드: 기간 값, 직전 같은 기간(전체 기간이면 최근 30일) 대비 증감, 미니 막대."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return build_overview_cards(df, start, end)
 
 
 @app.get("/api/time/summary")

@@ -4,6 +4,7 @@ import { Cover } from "./Cover";
 import { LINE, RankRow, fmtDuration } from "./RankRow";
 import { agoText, fmtHM } from "./format";
 import { ShareButton } from "./Share";
+import { CAT } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
@@ -66,7 +67,7 @@ function RankSection({ title, items, kind, onOpen, showArtist = false }: { title
   const max = items[0].count;
   return (
     <section style={{ marginTop: "1.5rem" }}>
-      <h3 style={{ fontWeight: 400 }}>{title}</h3>
+      <h3 style={{ fontWeight: 400, borderLeft: `4px solid ${CAT[kind].main}`, paddingLeft: "0.6rem" }}>{title}</h3>
       {shown.map((it, i) => (
         <RankRow key={`${it.artist}|${it.name}`} rank={i + 1} item={it} max={max} kind={kind} showArtist={showArtist} onOpen={() => onOpen(it)} />
       ))}
@@ -116,7 +117,13 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
             <button
               key={c}
               onClick={() => setStack([{ type: "list", category: c }])}
-              style={{ padding: "0.35rem 0.9rem", fontWeight: active ? 700 : 400, border: active ? "2px solid #8884d8" : "1px solid #666" }}
+              style={{
+                padding: "0.35rem 0.9rem",
+                fontWeight: active ? 700 : 400,
+                border: active ? `2px solid ${CAT[c].main}` : "1px solid #666",
+                borderBottom: `3px solid ${CAT[c].main}`,          // 카테고리 색 밑줄: 비활성이어도 어떤 색인지 보인다
+                color: active ? CAT[c].main : undefined,
+              }}
             >
               {c === "artist" ? "Artists" : c === "album" ? "Albums" : "Tracks"}
             </button>

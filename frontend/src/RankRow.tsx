@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Cover } from "./Cover";
+import { CAT } from "./theme";
 
 // Last.fm 라이브러리 스타일의 순위 한 줄: 순위 · 커버 · 이름/부제 · 막대(수치)
 export type RankKind = "artist" | "album" | "track";
@@ -15,7 +16,7 @@ export function fmtDuration(sec: number | null | undefined): string {
 }
 
 export const LINE = "1px solid rgba(128,128,128,0.25)";
-export const BAR = "rgba(136,132,216,0.32)";
+export const BAR = "rgba(136,132,216,0.32)";                 // 카테고리를 모를 때의 기본 막대색
 
 export function RankRow({
   rank,
@@ -64,7 +65,7 @@ export function RankRow({
         {extra}
       </div>
       <div style={{ width: "38%", maxWidth: 360, flexShrink: 0 }}>
-        <div style={{ width: `${Math.max(4, Math.min(1, fraction) * 100)}%`, background: BAR, padding: "0.5rem 0.6rem", borderRadius: 2, whiteSpace: "nowrap", boxSizing: "border-box" }}>
+        <div style={{ width: `${Math.max(4, Math.min(1, fraction) * 100)}%`, background: CAT[kind].soft, padding: "0.5rem 0.6rem", borderRadius: 2, whiteSpace: "nowrap", boxSizing: "border-box" }}>
           {text}
         </div>
       </div>

@@ -3,7 +3,8 @@ export function fmtHM(seconds: number): string {
   const minutes = Math.round(seconds / 60);
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return h ? `${h.toLocaleString()}시간 ${m}분` : `${m}분`;
+  if (!h) return `${m}분`;
+  return m ? `${h.toLocaleString()}시간 ${m}분` : `${h.toLocaleString()}시간`;
 }
 
 export type Metric = "plays" | "time";

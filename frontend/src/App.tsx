@@ -3,6 +3,8 @@ import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { Library } from "./Library";
 import { ShareButton, ShareProvider } from "./Share";
+import { OverviewCards } from "./OverviewCards";
+import { CAT } from "./theme";
 import { RankRow, type RankKind } from "./RankRow";
 import { fmtHM, makeFmt, withWeekday, type Metric } from "./format";
 import {
@@ -1272,35 +1274,13 @@ const handleCopyPrompt = () => {
           <div style={{ display: "flex", justifyContent: "flex-end", margin: "0.4rem 0" }}>
             <ShareButton spec={{ kind: "period", card: "summary", period: "all" }} label="🖼 요약 이미지 만들기" />
           </div>
-          <ul>
-            <li>Total Scrobbles: {stats.total_scrobbles}</li>
-            <li>Unique Tracks: {stats.unique_tracks}</li>
-            <li>Unique Artists: {stats.unique_artists}</li>
-            <li>Unique Albums: {stats.unique_albums}</li>
-            <li>First Scrobble: {stats.first_scrobble ?? "-"}</li>
-            <li>Last Scrobble: {stats.last_scrobble ?? "-"}</li>
-            {timeSummary && (
-              <>
-                <li>
-                  총 청취 시간: {fmtHM(timeSummary.total_seconds)}{" "}
-                  <span style={{ color: "#888", fontSize: "0.85rem" }}>
-                    (스크로블 × 곡 길이 추정 · 길이를 아는 재생 {Math.round(timeSummary.coverage * 100)}% 기준)
-                  </span>
-                </li>
-                <li>
-                  하루 평균: {fmtHM(timeSummary.avg_seconds_per_day)}{" "}
-                  <span style={{ color: "#888", fontSize: "0.85rem" }}>
-                    ({timeSummary.days}일 기준 · 청취한 날 {timeSummary.active_days}일 평균 {fmtHM(timeSummary.avg_seconds_per_active_day)})
-                  </span>
-                </li>
-                {timeSummary.busiest_day && (
-                  <li>
-                    가장 많이 들은 날: {withWeekday(timeSummary.busiest_day.date)} ({fmtHM(timeSummary.busiest_day.seconds)}, {timeSummary.busiest_day.plays}회)
-                  </li>
-                )}
-              </>
-            )}
-          </ul>
+          <OverviewCards
+            query={buildQuery}
+            firstScrobble={stats.first_scrobble}
+            totalScrobbles={stats.total_scrobbles}
+            timeSummary={timeSummary}
+            isAllTime={!dateRange.start && !dateRange.end}
+          />
 
           {diversity && (
             <>
@@ -1434,7 +1414,7 @@ const handleCopyPrompt = () => {
             ] as [RankKind, string, TopItem[]][]).map(([kind, title, items]) => (
               <section key={kind} style={{ marginTop: "1.5rem" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", marginBottom: "0.4rem" }}>
-                  <h3 style={{ fontWeight: 400, margin: "0.6rem 0" }}>{title}</h3>
+                  <h3 style={{ fontWeight: 400, margin: "0.6rem 0", borderLeft: `4px solid ${CAT[kind].main}`, paddingLeft: "0.6rem" }}>{title}</h3>
                   <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: kind, metric: topMode === "time" ? "time" : "plays" }} />
                 </div>
                 {items.map((item, i) => {

@@ -3,7 +3,7 @@ import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { Library } from "./Library";
 import { RankRow, type RankKind } from "./RankRow";
-import { fmtHM, makeFmt, type Metric } from "./format";
+import { fmtHM, makeFmt, withWeekday, type Metric } from "./format";
 import {
   BarChart,
   Bar,
@@ -335,7 +335,7 @@ function YearHeatmap({
                 >
                   {inYear && (
                     <title>
-                      {day.date}: {format(day.count)}
+                      {withWeekday(day.date)}: {format(day.count)}
                     </title>
                   )}
                 </rect>
@@ -589,7 +589,7 @@ function DayDetailModal({
             marginBottom: "1rem",
           }}
         >
-          <h3 style={{ margin: 0 }}>{detail?.date ?? "불러오는 중..."}</h3>
+          <h3 style={{ margin: 0 }}>{detail ? withWeekday(detail.date) : "불러오는 중..."}</h3>
           <button onClick={onClose} style={{ padding: "0.3rem 0.6rem" }}>
             닫기
           </button>
@@ -1301,7 +1301,7 @@ const handleCopyPrompt = () => {
                 </li>
                 {timeSummary.busiest_day && (
                   <li>
-                    가장 많이 들은 날: {timeSummary.busiest_day.date} ({fmtHM(timeSummary.busiest_day.seconds)}, {timeSummary.busiest_day.plays}회)
+                    가장 많이 들은 날: {withWeekday(timeSummary.busiest_day.date)} ({fmtHM(timeSummary.busiest_day.seconds)}, {timeSummary.busiest_day.plays}회)
                   </li>
                 )}
               </>

@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 import pandas as pd
 from fastapi import FastAPI
+from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -12,6 +13,8 @@ from app.analysis.ai_prompt_period import build_period_prompt, list_periods
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.lastfm.client import invalidate_aliased_cache
 from app.lastfm.album_art import get_album_art
+from app.lastfm.image_proxy import fetch_image
+from app.analysis.report_card import build_report_card
 from app.lastfm.artist_art import get_artist_art
 from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
@@ -613,6 +616,30 @@ def ai_prompt(start: str | None = None, end: str | None = None):
 
     prompt_text = build_ai_prompt(df)
     return {"prompt": prompt_text}
+
+
+@app.get("/api/report-card")
+def report_card(period: str = "month", anchor: str | None = None):
+    """공유 이미지용 한 기간(week/month/year/all)의 요약·순위·시간대별 청취량. 날짜 필터는 적용하지 않는다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    try:
+        return build_report_card(df, period, anchor, os.environ.get("USERNAME"))
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/image-proxy")
+def image_proxy(url: str):
+    """커버 이미지를 canvas 에 그려 저장할 수 있게 CORS 가 열린 응답으로 중계한다 (허용된 이미지 호스트만)."""
+    try:
+        data, ctype = fetch_image(url)
+    except ValueError as e:
+        return Response(content=str(e), status_code=400, media_type="text/plain")
+    except Exception:  # noqa: BLE001  (네트워크 오류 등)
+        return Response(content="이미지를 가져오지 못했습니다.", status_code=502, media_type="text/plain")
+    return Response(content=data, media_type=ctype, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/api/ai-prompt/periods")

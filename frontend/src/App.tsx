@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { Library } from "./Library";
+import { Share } from "./Share";
 import { RankRow, type RankKind } from "./RankRow";
 import { fmtHM, makeFmt, withWeekday, type Metric } from "./format";
 import {
@@ -158,13 +159,14 @@ type Diversity = {
   album: DiversityMetric;
 };
 
-type TabId = "overview" | "listening" | "music" | "library" | "consistency" | "discovery" | "taste" | "data";
+type TabId = "overview" | "listening" | "music" | "library" | "share" | "consistency" | "discovery" | "taste" | "data";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "listening", label: "Listening" },
   { id: "music", label: "Music" },
   { id: "library", label: "Library" },
+  { id: "share", label: "Share" },
   { id: "consistency", label: "Consistency" },
   { id: "discovery", label: "Discovery" },
   { id: "taste", label: "Taste" },
@@ -1448,6 +1450,9 @@ const handleCopyPrompt = () => {
           </div>
         </>
       )}
+
+      {/* Share 탭: 공유용 이미지 카드 (요약 / Top 순위 / 청취 시계) */}
+      {activeTab === "share" && <Share />}
 
       {/* Library 탭: Last.fm 라이브러리 같은 순위 목록과 상세 */}
       {activeTab === "library" && <Library query={buildQuery} />}

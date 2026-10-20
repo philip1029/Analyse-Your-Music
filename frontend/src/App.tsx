@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { Library } from "./Library";
+import { RankRow, type RankKind } from "./RankRow";
 import {
   BarChart,
   Bar,
@@ -197,18 +198,19 @@ function Sparkline({ monthly, months, width = 96, height = 20 }: { monthly: numb
   );
 }
 
-function consistencyText(c: Consistency): string {
-  if (c.evenness === null) return `${c.first_month} 시작 · 아직 한 달`;
+function consistencyText(c: Consistency, plays?: number): string {
+  const head = plays === undefined ? "" : `${plays.toLocaleString()}회 · `;
+  if (c.evenness === null) return `${head}${c.first_month} 시작 · 아직 한 달`;
   const gone = c.months_since_last >= 1 ? ` · 마지막 청취 ${c.months_since_last}개월 전` : " · 이번 달에도 들음";
-  return `고름 ${Math.round(c.evenness * 100)}% · ${c.active_months}/${c.months}개월 청취${gone}`;
+  return `${head}고름 ${Math.round(c.evenness * 100)}% · ${c.active_months}/${c.months}개월 청취${gone}`;
 }
 
-function ConsistencyLine({ c, months }: { c: Consistency | null | undefined; months: string[] }) {
+function ConsistencyLine({ c, months, plays }: { c: Consistency | null | undefined; months: string[]; plays?: number }) {
   if (!c) return null;
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, marginTop: 3, textAlign: "left" }}>
       <Sparkline monthly={c.monthly} months={months} width={Math.min(120, months.length * 4)} height={16} />
-      <span style={{ color: "#888", fontSize: "0.75rem" }}>{consistencyText(c)}</span>
+      <span style={{ color: "#888", fontSize: "0.75rem" }}>{consistencyText(c, plays)}</span>
     </div>
   );
 }
@@ -1309,61 +1311,32 @@ const handleCopyPrompt = () => {
               {!evenTop && " 불러오는 중..."}
             </p>
           )}
-          <div style={{ display: "flex", gap: "2rem", flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 250 }}>
-              <h3>Artists</h3>
-              <ol style={{ paddingLeft: "1.6rem" }}>
-                {shownTop.artist.map((item, i) => (
-                  <li key={i} style={{ marginBottom: "0.5rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <Cover kind="artist" artist={item.name} />
-                      <span style={{ textAlign: "left" }}>
-                        {item.name} <span style={{ color: "#888" }}>({item.count}회)</span>
-                        <ConsistencyLine c={item.consistency} months={shownTop.months} />
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            <div style={{ flex: 1, minWidth: 250 }}>
-              <h3>Tracks</h3>
-              <ol style={{ paddingLeft: "1.6rem" }}>
-                {shownTop.track.map((item, i) => (
-                  <li key={i} style={{ marginBottom: "0.5rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <Cover kind="album" artist={item.artist} album={item.album} />
-                      <span style={{ textAlign: "left" }}>
-                        {item.name}
-                        {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
-                        <span style={{ color: "#888" }}>({item.count}회)</span>
-                        <ConsistencyLine c={item.consistency} months={shownTop.months} />
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
-
-            <div style={{ flex: 1, minWidth: 250 }}>
-              <h3>Albums</h3>
-              <ol style={{ paddingLeft: "1.6rem" }}>
-                {shownTop.album.map((item, i) => (
-                  <li key={i} style={{ marginBottom: "0.5rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                      <Cover kind="album" artist={item.artist} album={item.name} />
-                      <span style={{ textAlign: "left" }}>
-                        {item.name}
-                        {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
-                        <span style={{ color: "#888" }}>({item.count}회)</span>
-                        <ConsistencyLine c={item.consistency} months={shownTop.months} />
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </div>
+          <div style={{ maxWidth: 980, margin: "0 auto", textAlign: "left" }}>
+            {([
+              ["artist", "Artists", shownTop.artist],
+              ["track", "Tracks", shownTop.track],
+              ["album", "Albums", shownTop.album],
+            ] as [RankKind, string, TopItem[]][]).map(([kind, title, items]) => (
+              <section key={kind} style={{ marginTop: "1.5rem" }}>
+                <h3 style={{ fontWeight: 400, marginBottom: "0.4rem" }}>{title}</h3>
+                {items.map((item, i) => {
+                  const c = item.consistency;
+                  const byEven = topMode === "even" && c?.evenness != null;
+                  return (
+                    <RankRow
+                      key={`${item.artist}|${item.name}`}
+                      rank={i + 1}
+                      item={item}
+                      max={items[0]?.count ?? 1}
+                      kind={kind}
+                      extra={<ConsistencyLine c={c} months={shownTop.months} plays={byEven ? item.count : undefined} />}
+                      barFraction={byEven ? (c?.evenness ?? 0) : undefined}
+                      barText={byEven ? `${Math.round((c?.evenness ?? 0) * 100)}%` : undefined}
+                    />
+                  );
+                })}
+              </section>
+            ))}
           </div>
         </>
       )}

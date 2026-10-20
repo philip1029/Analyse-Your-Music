@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
+import { LINE, RankRow } from "./RankRow";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
 
@@ -35,8 +36,6 @@ type View =
 
 const PAGE = 50;
 const PREVIEW = 10;
-const LINE = "1px solid rgba(128,128,128,0.25)";
-const BAR = "rgba(136,132,216,0.32)";
 
 const label: CSSProperties = { fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.03em", color: "#999", textTransform: "uppercase" };
 const bigNumber: CSSProperties = { fontSize: "1.5rem", fontWeight: 700 };
@@ -46,50 +45,6 @@ function Stat({ title, value }: { title: string; value: string | number }) {
     <div>
       <div style={label}>{title}</div>
       <div style={bigNumber}>{typeof value === "number" ? value.toLocaleString() : value}</div>
-    </div>
-  );
-}
-
-function RankRow({
-  rank,
-  item,
-  max,
-  kind,
-  onOpen,
-  showArtist = true,
-}: {
-  rank: number;
-  item: Item;
-  max: number;
-  kind: Category;
-  onOpen: () => void;
-  showArtist?: boolean;
-}) {
-  const subtitle = showArtist ? item.artist : null;
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onOpen}
-      onKeyDown={(e) => e.key === "Enter" && onOpen()}
-      style={{ display: "flex", alignItems: "center", gap: "0.9rem", padding: "0.55rem 0.25rem", borderBottom: LINE, cursor: "pointer", textAlign: "left" }}
-    >
-      <span style={{ width: 28, textAlign: "right", color: "#999", flexShrink: 0 }}>{rank}</span>
-      {kind === "artist" ? (
-        <Cover kind="artist" artist={item.name} size={44} />
-      ) : (
-        <Cover kind="album" artist={item.artist} album={kind === "album" ? item.name : item.album} size={44} />
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
-        {subtitle && <div style={{ color: "#999", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
-      </div>
-      <div style={{ width: "42%", maxWidth: 360, flexShrink: 0 }}>
-        <div style={{ width: `${Math.max(4, (item.count / max) * 100)}%`, background: BAR, padding: "0.5rem 0.6rem", borderRadius: 2, whiteSpace: "nowrap", boxSizing: "border-box" }}>
-          {item.count.toLocaleString()}
-          {rank === 1 ? " scrobbles" : ""}
-        </div>
-      </div>
     </div>
   );
 }

@@ -47,7 +47,7 @@ const PAGE = 50;
 const PREVIEW = 10;
 
 const label: CSSProperties = { fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.03em", color: "#999", textTransform: "uppercase" };
-const bigNumber: CSSProperties = { fontSize: "1.5rem", fontWeight: 700 };
+const bigNumber: CSSProperties = { fontSize: "1.5rem", fontWeight: 700, whiteSpace: "nowrap" };
 
 function Stat({ title, value, sub }: { title: string; value: string | number; sub?: string }) {
   return (
@@ -90,8 +90,25 @@ function LinkButton({ children, onClick }: { children: ReactNode; onClick: () =>
   );
 }
 
-export function Library({ query }: { query: (extra?: Record<string, string | number>) => string }) {
+// 다른 탭(Music, Discovery)에서 항목을 눌러 Library 의 상세 페이지로 바로 들어올 때 쓴다
+export type LibraryTarget =
+  | { kind: "artist"; name: string }
+  | { kind: "album"; name: string; artist: string | null }
+  | { kind: "track"; name: string; artist: string | null; album?: string | null };
+export type LibraryRequest = { id: number; target: LibraryTarget };
+
+export function Library({ query, request }: { query: (extra?: Record<string, string | number>) => string; request?: LibraryRequest | null }) {
   const [stack, setStack] = useState<View[]>([{ type: "list", category: "artist" }]);
+
+  // 요청이 오면 "목록 → 상세"로 쌓아서, 뒤로 가기를 누르면 그 종류의 목록으로 돌아간다
+  useEffect(() => {
+    if (!request) return;
+    const t = request.target;
+    const detail: View =
+      t.kind === "artist" ? { type: "artist", name: t.name } : t.kind === "album" ? { type: "album", name: t.name, artist: t.artist } : { type: "track", name: t.name, artist: t.artist, album: t.album ?? null };
+    setStack([{ type: "list", category: t.kind }, detail]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request?.id]);
   const [metric, setMetric] = useState<"plays" | "time">("plays");      // 목록 순위 기준: 재생 횟수 / 청취 시간
   const view = stack[stack.length - 1];
 
@@ -120,8 +137,10 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
               style={{
                 padding: "0.35rem 0.9rem",
                 fontWeight: active ? 700 : 400,
-                border: active ? `2px solid ${CAT[c].main}` : "1px solid #666",
-                borderBottom: `3px solid ${CAT[c].main}`,          // 카테고리 색 밑줄: 비활성이어도 어떤 색인지 보인다
+                // 카테고리 색 밑줄(비활성이어도 어떤 색인지 보인다). border 단축 속성과 borderBottom 을 섞으면 React 가 경고해서 풀어서 쓴다.
+                borderStyle: "solid",
+                borderWidth: active ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
+                borderColor: active ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
                 color: active ? CAT[c].main : undefined,
               }}
             >
@@ -278,7 +297,7 @@ function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<
         <ShareButton spec={{ kind: "artist", name: data.name }} />
       </div>
       {editing && <CoverEditor target={editing} onClose={() => setEditing(null)} onSaved={() => setCoverVersion((v) => v + 1)} />}
-      <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
+      <div style={{ display: "flex", gap: "1rem 2rem", flexWrap: "wrap", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />
         <Stat title="Albums" value={data.albums_count} />
@@ -330,7 +349,7 @@ function AlbumView({
         <ShareButton spec={{ kind: "album", name: data.name, artist: data.artist }} />
       </div>
       {editing && <CoverEditor target={editing} onClose={() => setEditing(null)} onSaved={() => setCoverVersion((v) => v + 1)} />}
-      <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
+      <div style={{ display: "flex", gap: "1rem 2rem", flexWrap: "wrap", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />
         <Stat title="Tracks" value={data.tracks_count} />
@@ -409,7 +428,7 @@ function TrackView({
         </div>
         <ShareButton spec={{ kind: "track", name: head.name, artist: head.artist, album: scope }} />
       </div>
-      <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
+      <div style={{ display: "flex", gap: "1rem 2rem", flexWrap: "wrap", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={head.scrobbles} />
         <Stat title="Time" value={fmtHM(head.seconds)} />
         <Stat title="First" value={head.first_played} sub={agoText(head.first_played)} />

@@ -138,3 +138,16 @@ export function OverviewCards({
     </>
   );
 }
+
+// 증감 없이 값만 보여 주는 카테고리 색 카드 (Discovery 등에서 쓴다)
+export function CatStat({ title, color, value, unit }: { title: string; color: string; value: number; unit?: string }) {
+  return (
+    <div style={{ background: color, color: CARD_INK, clipPath: DOG_EAR, padding: "0.9rem 1.1rem 1rem", minHeight: 88, textAlign: "left" }}>
+      <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>{title}</div>
+      <div style={{ marginTop: "0.4rem", display: "flex", alignItems: "baseline", gap: "0.3rem" }}>
+        <span style={{ fontSize: "2.3rem", fontWeight: 800, lineHeight: 1 }}>{value.toLocaleString()}</span>
+        {unit && <span style={{ fontSize: "1rem", fontWeight: 600 }}>{unit}</span>}
+      </div>
+    </div>
+  );
+}

@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
-import { Library } from "./Library";
+import { Library, type LibraryRequest, type LibraryTarget } from "./Library";
 import { ShareButton, ShareProvider } from "./Share";
-import { OverviewCards } from "./OverviewCards";
-import { CAT } from "./theme";
+import { CatStat, OverviewCards } from "./OverviewCards";
+import { DiscoveryList } from "./DiscoveryList";
+import { CAT, type Cat } from "./theme";
+import { ALL_TIME, PeriodBar } from "./PeriodBar";
 import { RankRow, type RankKind } from "./RankRow";
 import { fmtHM, makeFmt, withWeekday, type Metric } from "./format";
 import {
@@ -14,12 +16,6 @@ import {
   Line,
   AreaChart,
   Area,
-  RadarChart,
-  Radar,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Legend,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -54,13 +50,6 @@ type DiscoverySummary = {
   track: { total_new: number; months: string[]; counts: number[] };
   artist: { total_new: number; months: string[]; counts: number[] };
   album: { total_new: number; months: string[]; counts: number[] };
-};
-
-type DiscoveryItem = {
-  name: string;
-  artist: string | null;
-  album?: string | null;
-  first_listened: string;
 };
 
 type Stats = {
@@ -174,28 +163,6 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "data", label: "Data" },
 ];
 
-const ALL_TIME: DateRange = { label: "전체 기간" };
-
-function daysAgo(n: number): DateRange {
-  const end = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - n);
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-    label: `최근 ${n}일`,
-  };
-}
-
-function yearRange(year: number): DateRange {
-  return {
-    start: `${year}-01-01`,
-    end: `${year}-12-31`,
-    label: `${year}년`,
-  };
-}
-
-
 // 월별 재생 수 막대 미니 그래프 (전체 기간 달 기준이라 "지금은 안 듣는" 항목은 오른쪽이 비어 보인다)
 function Sparkline({ monthly, months, width = 96, height = 20 }: { monthly: number[]; months: string[]; width?: number; height?: number }) {
   const max = Math.max(...monthly, 1);
@@ -222,7 +189,7 @@ function consistencyText(c: Consistency, plays?: number): string {
 }
 
 function ConsistencyLine({ c, months, plays }: { c: Consistency | null | undefined; months: string[]; plays?: number }) {
-  if (!c) return null;
+  if (!c || c.evenness === null) return null;        // 한 달뿐인 기간(월 선택 등)에서는 "꾸준함"이 의미 없어 숨긴다
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, marginTop: 3, textAlign: "left" }}>
       <Sparkline monthly={c.monthly} months={months} width={Math.min(120, months.length * 4)} height={16} />
@@ -704,7 +671,13 @@ const handleCopyPrompt = () => {
   const [loadingDayDetail, setLoadingDayDetail] = useState(false);
 
   const [discoverySummary, setDiscoverySummary] = useState<DiscoverySummary | null>(null);
-  const [discoveryTimeline, setDiscoveryTimeline] = useState<DiscoveryItem[]>([]);
+  const [discoveryCat, setDiscoveryCat] = useState<Cat>("track");
+  // Music·Discovery 에서 항목을 누르면 Library 탭의 상세 페이지로 이동한다
+  const [libraryRequest, setLibraryRequest] = useState<LibraryRequest | null>(null);
+  const openInLibrary = (target: LibraryTarget) => {
+    setLibraryRequest({ id: Date.now(), target });
+    setActiveTab("library");
+  };
 
   const [invalidating, setInvalidating] = useState(false);
   const [invalidateMessage, setInvalidateMessage] = useState<string | null>(null);
@@ -712,9 +685,6 @@ const handleCopyPrompt = () => {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   const [dateRange, setDateRange] = useState<DateRange>(ALL_TIME);
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [tempStart, setTempStart] = useState("");
-  const [tempEnd, setTempEnd] = useState("");
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [hourlyData, setHourlyData] = useState<ChartPoint[]>([]);
@@ -963,11 +933,6 @@ const handleCopyPrompt = () => {
       .then(setDiscoverySummary)
       .catch((err) => setError(err.message));
 
-    fetch(`${BASE_URL}/api/discovery/timeline${buildQuery({ category: "track", limit: 15 })}`)
-      .then((res) => res.json())
-      .then((data) => setDiscoveryTimeline(data.results))
-      .catch((err) => setError(err.message));
-
     setArtistTags([]);
     setTagsPage(1);
     setTotalTagsPages(null);
@@ -1101,119 +1066,11 @@ const handleCopyPrompt = () => {
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
       <h1>Analyse Your Music</h1>
 
-      {/* 상단 컨트롤: 새로고침 버튼 + 기간 필터 */}
+      {/* 상단 컨트롤: 새로고침 · 태그 캐시 (기간 선택은 탭 아래 PeriodBar 로 통합) */}
       <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center" }}>
         <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "0.5rem 1rem" }}>
           {refreshing ? "업데이트 중..." : "🔄 최신 스크롭 불러오기"}
         </button>
-
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={() => {
-              setTempStart(dateRange.start ?? "");
-              setTempEnd(dateRange.end ?? "");
-              setFilterOpen((v) => !v);
-            }}
-            style={{ padding: "0.5rem 1rem" }}
-          >
-            📅 {dateRange.label}
-          </button>
-
-          {filterOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: "110%",
-                left: 0,
-                background: "white",
-                border: "1px solid #ccc",
-                borderRadius: 8,
-                padding: "1rem",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-                zIndex: 10,
-                width: 320,
-              }}
-            >
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: "0.5rem",
-                  marginBottom: "1rem",
-                }}
-              >
-                {[7, 30, 90, 180, 365].map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => {
-                      setDateRange(daysAgo(n));
-                      setFilterOpen(false);
-                    }}
-                    style={{ padding: "0.4rem" }}
-                  >
-                    최근 {n}일
-                  </button>
-                ))}
-                {[2025, 2026].map((y) => (
-                  <button
-                    key={y}
-                    onClick={() => {
-                      setDateRange(yearRange(y));
-                      setFilterOpen(false);
-                    }}
-                    style={{ padding: "0.4rem" }}
-                  >
-                    {y}년
-                  </button>
-                ))}
-                <button
-                  onClick={() => {
-                    setDateRange(ALL_TIME);
-                    setFilterOpen(false);
-                  }}
-                  style={{ padding: "0.4rem", color: "#c00", gridColumn: "span 2" }}
-                >
-                  전체 기간
-                </button>
-              </div>
-
-              <hr style={{ margin: "0.5rem 0" }} />
-
-              <label style={{ display: "block", fontSize: "0.8rem", color: "#888" }}>FROM</label>
-              <input
-                type="date"
-                value={tempStart}
-                onChange={(e) => setTempStart(e.target.value)}
-                style={{ width: "100%", padding: "0.4rem", marginBottom: "0.5rem" }}
-              />
-
-              <label style={{ display: "block", fontSize: "0.8rem", color: "#888" }}>TO</label>
-              <input
-                type="date"
-                value={tempEnd}
-                onChange={(e) => setTempEnd(e.target.value)}
-                style={{ width: "100%", padding: "0.4rem", marginBottom: "1rem" }}
-              />
-
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
-                <button onClick={() => setFilterOpen(false)}>Cancel</button>
-                <button
-                  onClick={() => {
-                    setDateRange({
-                      start: tempStart || undefined,
-                      end: tempEnd || undefined,
-                      label: tempStart && tempEnd ? `${tempStart} ~ ${tempEnd}` : "커스텀 기간",
-                    });
-                    setFilterOpen(false);
-                  }}
-                  style={{ background: "#c00", color: "white", padding: "0.4rem 0.8rem" }}
-                >
-                  Apply
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
 
         <button onClick={handleFetchTagCache} disabled={cachingTags} style={{ padding: "0.5rem 1rem" }}>
           {cachingTags
@@ -1245,6 +1102,8 @@ const handleCopyPrompt = () => {
           </button>
         ))}
       </div>
+
+      <PeriodBar range={dateRange} onChange={setDateRange} />
 
       {refreshMessage && <p>{refreshMessage}</p>}
 
@@ -1429,6 +1288,7 @@ const handleCopyPrompt = () => {
                       max={items[0]?.count ?? 1}
                       kind={kind}
                       extra={<ConsistencyLine c={c} months={shownTop.months} plays={byEven || byTime ? item.count : undefined} />}
+                      onOpen={() => openInLibrary(kind === "artist" ? { kind: "artist", name: item.name } : { kind, name: item.name, artist: item.artist })}
                       barFraction={byEven ? (c?.evenness ?? 0) : byTime ? (item.seconds ?? 0) / Math.max(1, items[0]?.seconds ?? 1) : undefined}
                       barText={byEven ? `${Math.round((c?.evenness ?? 0) * 100)}%` : byTime ? fmtHM(item.seconds ?? 0) : undefined}
                     />
@@ -1441,7 +1301,7 @@ const handleCopyPrompt = () => {
       )}
 
       {/* Library 탭: Last.fm 라이브러리 같은 순위 목록과 상세 */}
-      {activeTab === "library" && <Library query={buildQuery} />}
+      {activeTab === "library" && <Library query={buildQuery} request={libraryRequest} />}
 
       {/* Consistency 탭: 월별 재생이 고르게 퍼진 순 / 한 시기에 몰린 순 */}
       {activeTab === "consistency" && (
@@ -1519,44 +1379,55 @@ const handleCopyPrompt = () => {
       {/* Discovery 탭 */}
       {activeTab === "discovery" && discoverySummary && (
         <>
-          <h2>새로 발견한 음악</h2>
-          <ul>
-            <li>총 신규 트랙: {discoverySummary.track.total_new}개</li>
-            <li>총 신규 아티스트: {discoverySummary.artist.total_new}명</li>
-            <li>총 신규 앨범: {discoverySummary.album.total_new}개</li>
-          </ul>
+          <h2 style={{ textAlign: "left" }}>새로 발견한 음악</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.8rem", margin: "0.6rem 0 1rem" }}>
+            <CatStat title="신규 트랙" color={CAT.track.main} value={discoverySummary.track.total_new} unit="곡" />
+            <CatStat title="신규 아티스트" color={CAT.artist.main} value={discoverySummary.artist.total_new} unit="명" />
+            <CatStat title="신규 앨범" color={CAT.album.main} value={discoverySummary.album.total_new} unit="개" />
+          </div>
 
-          <h3>월별 신규 트랙 수</h3>
-          <ResponsiveContainer width="100%" height={300}>
+          {/* 곡 / 아티스트 / 앨범 전환: 아래 월별 그래프와 최근 발견 목록이 함께 바뀐다 */}
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", margin: "0.4rem 0 0.8rem" }}>
+            {(["track", "artist", "album"] as Cat[]).map((c) => (
+              <button
+                key={c}
+                onClick={() => setDiscoveryCat(c)}
+                style={{
+                  padding: "0.35rem 0.9rem",
+                  fontWeight: discoveryCat === c ? 700 : 400,
+                  borderStyle: "solid",
+                  borderWidth: discoveryCat === c ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
+                  borderColor: discoveryCat === c ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
+                  color: discoveryCat === c ? CAT[c].main : undefined,
+                }}
+              >
+                {c === "track" ? "곡" : c === "artist" ? "아티스트" : "앨범"}
+              </button>
+            ))}
+          </div>
+
+          <h3 style={{ textAlign: "left", borderLeft: `4px solid ${CAT[discoveryCat].main}`, paddingLeft: "0.6rem" }}>
+            월별 신규 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"} 수
+          </h3>
+          <ResponsiveContainer width="100%" height={260}>
             <LineChart
-              data={discoverySummary.track.months.map((m, i) => ({
+              data={discoverySummary[discoveryCat].months.map((m, i) => ({
                 period: m,
-                newTracks: discoverySummary.track.counts[i],
+                count: discoverySummary[discoveryCat].counts[i],
               }))}
             >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
               <YAxis />
               <Tooltip />
-              <Line type="monotone" dataKey="newTracks" stroke="#8884d8" name="신규 트랙 수" />
+              <Line type="monotone" dataKey="count" stroke={CAT[discoveryCat].main} strokeWidth={2} name="신규 수" />
             </LineChart>
           </ResponsiveContainer>
 
-          <h3>최근 발견한 곡</h3>
-          <ol style={{ paddingLeft: "1.6rem" }}>
-            {discoveryTimeline.map((item, i) => (
-              <li key={i} style={{ marginBottom: "0.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-                  <Cover kind="album" artist={item.artist} album={item.album} />
-                  <span>
-                    {item.name}
-                    {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
-                    <span style={{ color: "#888" }}>({item.first_listened})</span>
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ol>
+          <h3 style={{ textAlign: "left", borderLeft: `4px solid ${CAT[discoveryCat].main}`, paddingLeft: "0.6rem" }}>
+            최근 발견한 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"}
+          </h3>
+          <DiscoveryList cat={discoveryCat} query={buildQuery} onOpen={openInLibrary} />
         </>
       )}
 

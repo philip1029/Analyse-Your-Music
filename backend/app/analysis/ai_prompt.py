@@ -1,6 +1,8 @@
 import pandas as pd
 from app.analysis.diversity import compute_diversity
 from app.analysis.keys import key_series, unique_count
+from app.analysis.library import ranked_page
+from app.analysis.listening_time import fmt_hm, time_summary
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.analysis.taste import compute_tag_distribution, compute_tag_evolution_dynamic
 from app.analysis.trends import (
@@ -89,6 +91,14 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
     lines.append(f"- 고유 아티스트 수: {unique_artists}명")
     lines.append(f"- 고유 트랙 수: {unique_tracks}개")
     lines.append(f"- 고유 앨범 수: {unique_albums}개")
+    ts = time_summary(df)
+    busiest = ts["busiest_day"]
+    lines.append(f"- 총 청취 시간(추정): {fmt_hm(ts['total_seconds'])} (곡 길이를 아는 재생 {ts['coverage'] * 100:.0f}% 기준, "
+                 f"스크로블 횟수 x 곡 길이라 끝까지 들었다고 가정한 상한)")
+    lines.append(f"- 하루 평균 청취 시간: {fmt_hm(ts['avg_seconds_per_day'])} (기간 {ts['days']}일 기준) · "
+                 f"청취한 날 평균 {fmt_hm(ts['avg_seconds_per_active_day'])}")
+    if busiest:
+        lines.append(f"- 가장 많이 들은 날: {busiest['date']} ({fmt_hm(busiest['seconds'])}, {busiest['plays']}회)")
     lines.append("")
 
     # 2. 순위
@@ -102,6 +112,15 @@ def build_ai_prompt(df: pd.DataFrame) -> str:
     lines.append("### Top 10 앨범")
     lines.append(_table(["순위", "앨범", "재생 횟수"], [[i, n, c] for i, (n, c) in enumerate(top_albums, 1)]))
     lines.append("")
+
+    # 2-2. 청취 시간 기준 순위 (횟수 순위와 다를 수 있다: 긴 곡·긴 앨범이 위로 올라온다)
+    lines.append("## 2-2. 청취 시간 기준 순위")
+    for cat, name in [("artist", "아티스트"), ("track", "트랙"), ("album", "앨범")]:
+        page = ranked_page(df, cat, 0, 10, "time")["items"]
+        label = lambda it: f"{it['artist']} - {it['name']}" if it.get("artist") and cat != "artist" else it["name"]  # noqa: E731
+        lines.append(f"### Top 10 {name} (청취 시간순)")
+        lines.append(_table(["순위", name, "청취 시간", "재생 횟수"], [[i, label(it), fmt_hm(it["seconds"]), it["count"]] for i, it in enumerate(page, 1)]))
+        lines.append("")
 
     # 3. 언어/지역권 트렌드
     lines.append("## 3. 언어/지역권 트렌드")

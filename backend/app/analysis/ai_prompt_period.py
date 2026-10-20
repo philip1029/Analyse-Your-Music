@@ -9,6 +9,8 @@ import pandas as pd
 
 from app.analysis.ai_prompt import _sparkline, _table
 from app.analysis.diversity import compute_diversity
+from app.analysis.library import ranked_page
+from app.analysis.listening_time import attach_durations, coverage, fmt_hm, total_seconds
 from app.analysis.taste import compute_tag_distribution, load_artist_tags
 from app.analysis.trends import classify_region
 
@@ -20,7 +22,7 @@ EARLY_LONG_SESSION_HOURS = 3
 
 
 def _prep(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
+    df = attach_durations(df.copy())      # 행마다 곡 길이(dur_sec): 청취 시간 계산용
     df["datetime_kst"] = pd.to_datetime(df["utc_time"], utc=True, format="mixed").dt.tz_convert(KST)
     df["artist"] = df["artist"].fillna("")
     df["track"] = df["track"].fillna("")
@@ -211,10 +213,15 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     active_days = cur["datetime_kst"].dt.strftime("%Y-%m-%d").nunique()
     prev_active = prev["datetime_kst"].dt.strftime("%Y-%m-%d").nunique() if len(prev) else 0
     named_art = lambda d: d[d["artist"] != ""]["artist"].nunique()  # noqa: E731
+    cur_sec, prev_sec = total_seconds(cur), total_seconds(prev)
     rows = [
         ["총 스크로블", f"{len(cur):,}", f"{len(prev):,}" if len(prev) else "-", _fmt_delta(len(cur), len(prev)) if len(prev) else "-"],
         ["일평균 스크로블", f"{len(cur) / covered_days:.1f}", f"{len(prev) / prev_covered:.1f}" if len(prev) else "-",
          _fmt_delta(round(len(cur) / covered_days, 1), round(len(prev) / prev_covered, 1)) if len(prev) else "-"],
+        ["총 청취 시간 (추정)", fmt_hm(cur_sec), fmt_hm(prev_sec) if len(prev) else "-",
+         _fmt_delta(round(cur_sec / 3600, 1), round(prev_sec / 3600, 1), "시간") if len(prev) else "-"],
+        ["일평균 청취 시간", fmt_hm(cur_sec / covered_days), fmt_hm(prev_sec / prev_covered) if len(prev) else "-",
+         _fmt_delta(round(cur_sec / covered_days / 60), round(prev_sec / prev_covered / 60), "분") if len(prev) else "-"],
         ["청취한 날 수", f"{active_days}/{covered_days}", f"{prev_active}/{prev_covered}" if len(prev) else "-",
          _fmt_delta(active_days, prev_active) if len(prev) and not partial and prev_covered >= prev_total_days else "-"],
         ["고유 아티스트", named_art(cur), named_art(prev) if len(prev) else "-", _fmt_delta(named_art(cur), named_art(prev)) if len(prev) else "-"],
@@ -229,6 +236,8 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     if empty_artist:
         note += f" · 아티스트가 비어 있는 {empty_artist}행은 아티스트 통계에서 제외됨"
     lines.append(note)
+    lines.append(f"- 청취 시간은 '스크로블 횟수 x 곡 길이'로 계산한 추정치(끝까지 들었다고 가정한 상한)이고, "
+                 f"곡 길이를 아는 재생이 {coverage(cur) * 100:.0f}%라 실제보다 조금 적게 잡힐 수 있습니다.")
     if len(prev) and prev_covered < prev_total_days:
         lines.append(f"- 비교 대상({prev_label})은 {prev_covered}/{prev_total_days}일만 기록돼 있어, 총량 증감보다 '일평균'으로 비교해 주세요.")
     if (period == "month" and (start - data_first).days < 90) or (period == "year" and prev_covered < prev_total_days):
@@ -243,9 +252,10 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
             d0 = start + pd.Timedelta(days=i)
             day = _slice(cur, d0, d0 + pd.Timedelta(days=1))
             top = _named_counts(day, "artist")
-            day_rows.append([f"{d0:%m-%d}({WEEKDAYS[i]})", len(day), f"{top.index[0]} ({int(top.iloc[0])})" if len(top) else "-"])
+            day_rows.append([f"{d0:%m-%d}({WEEKDAYS[i]})", len(day), fmt_hm(total_seconds(day)),
+                             f"{top.index[0]} ({int(top.iloc[0])})" if len(top) else "-"])
         lines.append("### 요일별 (이번 주)")
-        lines.append(_table(["날짜", "재생 횟수", "가장 많이 들은 아티스트"], day_rows))
+        lines.append(_table(["날짜", "재생 횟수", "청취 시간", "가장 많이 들은 아티스트"], day_rows))
         trend_periods = [start - pd.Timedelta(days=7 * k) for k in range(7, -1, -1)]
         trend_vals = [len(_slice(df, s, s + pd.Timedelta(days=7))) for s in trend_periods]
         lines.append("")
@@ -326,6 +336,15 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
         lines.append(_table(["순위", name, unit_cap, prev_label, "상태"],
                             _top_compare(cur, prev, before, col, prev_word="전년" if period == "year" else "직전")))
         lines.append("")
+
+    # 3-2. 청취 시간 기준 순위 (횟수 순위와 다를 수 있다: 긴 곡·긴 앨범이 위로 올라온다)
+    lines.append(f"### 청취 시간 기준 Top 5 ({unit_cap})")
+    for cat, name in [("artist", "아티스트"), ("track", "트랙"), ("album", "앨범")]:
+        page = ranked_page(cur, cat, 0, 5, "time")["items"]
+        label = lambda it: f"{it['artist']} - {it['name']}" if it.get("artist") and cat != "artist" else it["name"]  # noqa: E731
+        lines.append(f"#### {name}")
+        lines.append(_table(["순위", name, "청취 시간", "재생 횟수"], [[i, label(it), fmt_hm(it["seconds"]), it["count"]] for i, it in enumerate(page, 1)]))
+    lines.append("")
 
     # 4. 신규 발견 / 복귀
     lines.append("## 4. 신규 발견과 복귀")

@@ -17,6 +17,7 @@ from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
 from app.analysis.keys import unique_count, resolve_all
 from app.analysis.library import ranked_page, artist_detail, album_detail, track_detail, durations
+from app.analysis.listening_time import attach_durations, time_summary, weights
 from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
     get_artist_tags_page,
@@ -101,8 +102,24 @@ def stats(start: str | None = None, end: str | None = None):
     }
 
 
+def _grouped(df: pd.DataFrame, by: str, metric: str) -> pd.Series:
+    """by 열로 묶은 값: metric == "time" 이면 분(곡 길이 x 재생), 아니면 재생 횟수."""
+    if metric == "time":
+        return weights(df, "time").groupby(df[by]).sum().round(1)
+    return df.groupby(by).size()
+
+
+@app.get("/api/time/summary")
+def time_summary_endpoint(start: str | None = None, end: str | None = None):
+    """총 청취 시간(스크롭 횟수 x 곡 길이), 하루 평균, 가장 많이 들은 날."""
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return time_summary(df)
+
+
 @app.get("/api/listening/hourly")
-def listening_hourly(start: str | None = None, end: str | None = None):
+def listening_hourly(metric: str = "plays", start: str | None = None, end: str | None = None):
     df = get_filtered_df(start, end)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
@@ -111,16 +128,17 @@ def listening_hourly(start: str | None = None, end: str | None = None):
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["hour"] = df["datetime_kst"].dt.hour
 
-    hourly_counts = df.groupby("hour").size().reindex(range(24), fill_value=0)
+    hourly_counts = _grouped(df, "hour", metric).reindex(range(24), fill_value=0)
 
     return {
         "hours": list(range(24)),
         "counts": hourly_counts.tolist(),
+        "metric": metric,
     }
 
 
 @app.get("/api/listening/weekday")
-def listening_weekday(start: str | None = None, end: str | None = None):
+def listening_weekday(metric: str = "plays", start: str | None = None, end: str | None = None):
     df = get_filtered_df(start, end)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
@@ -129,17 +147,18 @@ def listening_weekday(start: str | None = None, end: str | None = None):
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["weekday"] = df["datetime_kst"].dt.dayofweek
 
-    weekday_counts = df.groupby("weekday").size().reindex(range(7), fill_value=0)
+    weekday_counts = _grouped(df, "weekday", metric).reindex(range(7), fill_value=0)
     weekday_labels = ["월", "화", "수", "목", "금", "토", "일"]
 
     return {
         "weekdays": weekday_labels,
         "counts": weekday_counts.tolist(),
+        "metric": metric,
     }
 
 
 @app.get("/api/listening/monthly")
-def listening_monthly(start: str | None = None, end: str | None = None):
+def listening_monthly(metric: str = "plays", start: str | None = None, end: str | None = None):
     df = get_filtered_df(start, end)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
@@ -148,16 +167,17 @@ def listening_monthly(start: str | None = None, end: str | None = None):
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["year_month"] = df["datetime_kst"].dt.strftime("%Y-%m")
 
-    monthly_counts = df.groupby("year_month").size().sort_index()
+    monthly_counts = _grouped(df, "year_month", metric).sort_index()
 
     return {
         "months": monthly_counts.index.tolist(),
         "counts": monthly_counts.values.tolist(),
+        "metric": metric,
     }
 
 
 @app.get("/api/listening/yearly")
-def listening_yearly(start: str | None = None, end: str | None = None):
+def listening_yearly(metric: str = "plays", start: str | None = None, end: str | None = None):
     df = get_filtered_df(start, end)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
@@ -166,11 +186,12 @@ def listening_yearly(start: str | None = None, end: str | None = None):
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["year"] = df["datetime_kst"].dt.year
 
-    yearly_counts = df.groupby("year").size().sort_index()
+    yearly_counts = _grouped(df, "year", metric).sort_index()
 
     return {
         "years": yearly_counts.index.tolist(),
         "counts": yearly_counts.values.tolist(),
+        "metric": metric,
     }
 
 
@@ -178,9 +199,12 @@ def listening_yearly(start: str | None = None, end: str | None = None):
 def music_top(
     category: str = "artist",
     limit: int = 20,
+    metric: str = "plays",
     start: str | None = None,
     end: str | None = None,
 ):
+    """Top 목록. metric=plays 는 재생 횟수 순, metric=time 은 청취 시간(횟수 x 곡 길이) 순."""
+    by_time = metric == "time"
     column_map = {"artist": "artist", "track": "track", "album": "album"}
     if category not in column_map:
         return {"error": f"category는 {list(column_map.keys())} 중 하나여야 합니다."}
@@ -192,20 +216,34 @@ def music_top(
     column = column_map[category]
     full = df                                   # 꾸준함 계산은 기간 전체 기준 (항목별 필터 전)
     df = df[df[column].notna() & (df[column] != "")]
+    if by_time:
+        df = attach_durations(df)
 
     results = []
     if column == "artist":
-        for name, count in df["artist"].value_counts().head(limit).items():
-            results.append({"name": name, "count": int(count), "artist": None, "_key": name})
+        counts_all = df["artist"].value_counts()
+        if by_time:
+            secs = df["dur_sec"].fillna(0).groupby(df["artist"]).sum().sort_values(ascending=False, kind="stable").head(limit)
+            for name, sec in secs.items():
+                results.append({"name": name, "count": int(counts_all[name]), "seconds": int(sec), "artist": None, "_key": name})
+        else:
+            for name, count in counts_all.head(limit).items():
+                results.append({"name": name, "count": int(count), "artist": None, "_key": name})
     else:
         # 곡명·앨범명만 같은 다른 아티스트의 항목(Untitled, Eureka 등)은 따로, 같은 앨범의 크레딧 표기 차이는 합쳐서 센다
         keys, reps, names = resolve_all(df, column)
         df = df.assign(_key=keys, _rep=reps, _name=names)
-        counts = df.groupby("_key").size().sort_values(ascending=False, kind="stable").head(limit)
-        for key, count in counts.items():
+        sizes = df.groupby("_key").size()
+        if by_time:
+            order = df["dur_sec"].fillna(0).groupby(df["_key"]).sum().sort_values(ascending=False, kind="stable").head(limit)
+        else:
+            order = sizes.sort_values(ascending=False, kind="stable").head(limit)
+        for key in order.index:
             rows = df[df["_key"] == key]
             rep = rows["_rep"].iloc[0]
-            item = {"name": rows["_name"].iloc[0], "count": int(count), "artist": rep or None, "_key": key}
+            item = {"name": rows["_name"].iloc[0], "count": int(sizes[key]), "artist": rep or None, "_key": key}
+            if by_time:
+                item["seconds"] = int(order[key])
             if column == "track":
                 # 커버용: 이 곡이 가장 많이 기록된 앨범
                 albums = rows["album"]
@@ -218,7 +256,7 @@ def music_top(
     stats, months = stats_for_keys(full, category, [r["_key"] for r in results])
     for r in results:
         r["consistency"] = stats.get(r.pop("_key"))
-    return {"category": category, "months": months, "results": results}
+    return {"category": category, "metric": metric, "months": months, "results": results}
 
 
 @app.get("/api/music/consistency")
@@ -433,14 +471,14 @@ def cache_invalidate_aliases():
     return {"deleted_files": deleted, "count": len(deleted)}
 
 @app.get("/api/library/list")
-def library_list(category: str = "artist", offset: int = 0, limit: int = 50, start: str | None = None, end: str | None = None):
+def library_list(category: str = "artist", offset: int = 0, limit: int = 50, metric: str = "plays", start: str | None = None, end: str | None = None):
     """Last.fm 라이브러리 같은 순위 목록 (artist/album/track)."""
     if category not in ("artist", "album", "track"):
         return {"error": "category는 artist, album, track 중 하나여야 합니다."}
     df = get_filtered_df(start, end)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
-    return ranked_page(df, category, max(0, offset), min(max(1, limit), 200))
+    return ranked_page(df, category, max(0, offset), min(max(1, limit), 200), "time" if metric == "time" else "plays")
 
 
 @app.get("/api/library/artist")
@@ -507,7 +545,7 @@ def discovery_timeline(
     return {"category": category, "results": results}
 
 @app.get("/api/listening/daily")
-def listening_daily(start: str | None = None, end: str | None = None):
+def listening_daily(metric: str = "plays", start: str | None = None, end: str | None = None):
     df = get_filtered_df(start, end)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
@@ -516,13 +554,14 @@ def listening_daily(start: str | None = None, end: str | None = None):
     df["datetime_kst"] = df["datetime_utc"].dt.tz_convert("Asia/Seoul")
     df["date"] = df["datetime_kst"].dt.strftime("%Y-%m-%d")
 
-    daily_counts = df.groupby("date").size()
+    daily_counts = _grouped(df, "date", metric)
 
     return {
+        "metric": metric,
         "days": [
-            {"date": date, "count": int(count)}
+            {"date": date, "count": int(count) if metric != "time" else round(float(count), 1)}
             for date, count in daily_counts.items()
-        ]
+        ],
     }
 
 

@@ -23,6 +23,7 @@ import time
 import unicodedata
 import zipfile
 from collections import defaultdict
+from functools import lru_cache
 from pathlib import Path
 
 import requests
@@ -40,6 +41,7 @@ _SUFFIX_PAREN = re.compile(rf"\s*[\(\[（][^()\[\]（）]*?{_TAGS}[^()\[\]（）
 _SUFFIX_DASH = re.compile(rf"\s+[-–—]\s+[^-–—]*?{_TAGS}[^-–—]*$", re.IGNORECASE)
 
 
+@lru_cache(maxsize=200_000)
 def norm(s) -> str:
     """이름 비교용 정규화: NFKC, 소문자, 글자·숫자만 남김."""
     return re.sub(r"[\W_]+", "", unicodedata.normalize("NFKC", str(s or "")).lower())
@@ -231,8 +233,16 @@ class DurationLookup:
                 by_title[k.split("\t", 1)[1]].add(v["sec"])
         self._by_title = {t: next(iter(s)) for t, s in by_title.items() if len(s) == 1}
 
+    def get_many(self, pairs) -> dict:
+        """[(아티스트, 곡명)] -> {(아티스트, 곡명): 초 또는 None}. 캐시 파일 확인을 한 번만 한다."""
+        self._refresh()
+        return {p: self._get(*p) for p in pairs}
+
     def get(self, artist, track) -> int | None:
         self._refresh()
+        return self._get(artist, track)
+
+    def _get(self, artist, track) -> int | None:
         entry = self._tracks.get(cache_key(artist, track))
         if entry and entry.get("sec"):
             return entry["sec"]

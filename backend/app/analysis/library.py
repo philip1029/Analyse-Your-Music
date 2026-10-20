@@ -1,12 +1,8 @@
-from pathlib import Path
-
 import pandas as pd
 
+from app.analysis.duration_store import durations  # noqa: F401  (다른 모듈이 library 에서 가져다 쓴다)
 from app.analysis.keys import name_key, resolve_all
-from app.lastfm.durations import CACHE_NAME, DurationLookup
-
-# data/track_durations.json (scripts/fill_durations.py 가 채움). 없으면 길이는 None.
-durations = DurationLookup(Path(__file__).resolve().parents[3] / "data" / CACHE_NAME)
+from app.analysis.listening_time import attach_durations
 
 
 def _top_album_per_key(df: pd.DataFrame, keys: pd.Series, wanted: set[str]) -> dict[str, str]:
@@ -19,29 +15,55 @@ def _top_album_per_key(df: pd.DataFrame, keys: pd.Series, wanted: set[str]) -> d
     return dict(zip(g["_key"], g["album"]))
 
 
-def ranked_page(df: pd.DataFrame, category: str, offset: int = 0, limit: int = 50) -> dict:
-    """Last.fm 라이브러리 같은 순위 목록. 반환: 전체 항목 수(고유), 전체 재생 수, 해당 구간 항목."""
-    total_plays = int(len(df))
-    if category == "artist":
-        counts = df[df["artist"] != ""]["artist"].value_counts()
-        page = counts.iloc[offset: offset + limit]
-        items = [{"name": n, "artist": None, "album": None, "count": int(c)} for n, c in page.items()]
-        return {"category": category, "total": int(len(counts)), "total_plays": total_plays, "offset": offset, "items": items}
+def _seconds(rows: pd.DataFrame) -> int:
+    """행들의 청취 시간(초): 재생마다 곡 길이를 더한다 (길이를 모르는 곡은 0)."""
+    return int(attach_durations(rows)["dur_sec"].fillna(0).sum()) if len(rows) else 0
 
-    keys, reps, names = resolve_all(df, category)
+
+def ranked_page(df: pd.DataFrame, category: str, offset: int = 0, limit: int = 50, metric: str = "plays") -> dict:
+    """
+    Last.fm 라이브러리 같은 순위 목록. 반환: 전체 항목 수(고유), 전체 재생 수, 해당 구간 항목.
+    metric: "plays" 는 재생 횟수 순, "time" 은 청취 시간(재생 횟수 x 곡 길이) 순. 항목마다 count(횟수)와 seconds(시간)가 들어간다.
+    """
+    by_time = metric == "time"
+    total_plays = int(len(df))
+    d = attach_durations(df) if by_time else df
+
+    if category == "artist":
+        sub = d[d["artist"] != ""]
+        counts = sub["artist"].value_counts()
+        score = sub["dur_sec"].fillna(0).groupby(sub["artist"]).sum() if by_time else counts
+        order = score.sort_values(ascending=False, kind="stable") if by_time else counts
+        page = order.iloc[offset: offset + limit]
+        items = []
+        for n, v in page.items():
+            item = {"name": n, "artist": None, "album": None, "count": int(counts[n])}
+            if by_time:
+                item["seconds"] = int(v)
+            items.append(item)
+        return {"category": category, "metric": metric, "total": int(len(counts)), "total_plays": total_plays, "offset": offset, "items": items}
+
+    keys, reps, names = resolve_all(d, category)
     valid = keys != ""
     counts = keys[valid].value_counts()
-    page = counts.iloc[offset: offset + limit]
-    first = df[valid].assign(_key=keys[valid], _rep=reps[valid], _name=names[valid]).drop_duplicates("_key").set_index("_key")
-    album_of = _top_album_per_key(df, keys, set(page.index)) if category == "track" else {}
+    if by_time:
+        secs = d.loc[valid, "dur_sec"].fillna(0).groupby(keys[valid]).sum()
+        order = secs.sort_values(ascending=False, kind="stable")
+    else:
+        secs, order = None, counts
+    page = order.iloc[offset: offset + limit]
+    first = d[valid].assign(_key=keys[valid], _rep=reps[valid], _name=names[valid]).drop_duplicates("_key").set_index("_key")
+    album_of = _top_album_per_key(d, keys, set(page.index)) if category == "track" else {}
     items = []
-    for key, c in page.items():
+    for key in page.index:
         row = first.loc[key]
-        item = {"name": row["_name"], "artist": row["_rep"] or None, "album": album_of.get(key), "count": int(c)}
+        item = {"name": row["_name"], "artist": row["_rep"] or None, "album": album_of.get(key), "count": int(counts[key])}
+        if by_time:
+            item["seconds"] = int(secs[key])
         if category == "track":
             item["duration"] = durations.get(item["artist"] or "", item["name"])
         items.append(item)
-    return {"category": category, "total": int(len(counts)), "total_plays": total_plays, "offset": offset, "items": items}
+    return {"category": category, "metric": metric, "total": int(len(counts)), "total_plays": total_plays, "offset": offset, "items": items}
 
 
 def artist_detail(df: pd.DataFrame, name: str) -> dict | None:
@@ -61,6 +83,7 @@ def artist_detail(df: pd.DataFrame, name: str) -> dict | None:
     return {
         "name": name,
         "scrobbles": int(len(rows)),
+        "seconds": _seconds(rows),
         "albums_count": int(len(alb)),
         "tracks_count": int(len(trk)),
         "albums": [{"name": n, "artist": name, "count": int(c)} for n, c in alb.items()],
@@ -106,6 +129,7 @@ def album_detail(df: pd.DataFrame, artist: str | None, name: str) -> dict | None
         "name": album_names.iloc[0],
         "artist": artist,
         "scrobbles": int(len(rows)),
+        "seconds": _seconds(rows),
         "tracks_count": len(tracks),
         "tracks": tracks,
     }
@@ -141,6 +165,7 @@ def track_detail(df: pd.DataFrame, artist: str | None, name: str, offset: int = 
         "albums": [{"name": n, "count": int(c)} for n, c in breakdown.items()],
         "duration": durations.get(rep or "", shown),
         "scrobbles": int(len(rows)),
+        "seconds": _seconds(rows),
         "first_played": rows["_kst"].min().strftime("%Y-%m-%d"),
         "last_played": rows["_kst"].max().strftime("%Y-%m-%d"),
         "offset": offset,

@@ -2,18 +2,19 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } 
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { LINE, RankRow, fmtDuration } from "./RankRow";
+import { fmtHM } from "./format";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
 
 type Category = "artist" | "album" | "track";
 
-type Item = { name: string; artist: string | null; album?: string | null; count: number; duration?: number | null };
+type Item = { name: string; artist: string | null; album?: string | null; count: number; duration?: number | null; seconds?: number };
 
 type ListResult = { category: Category; total: number; total_plays: number; offset: number; items: Item[] };
 
-type ArtistDetail = { name: string; scrobbles: number; albums_count: number; tracks_count: number; albums: Item[]; tracks: Item[] };
+type ArtistDetail = { name: string; scrobbles: number; seconds: number; albums_count: number; tracks_count: number; albums: Item[]; tracks: Item[] };
 
-type AlbumDetail = { name: string; artist: string | null; scrobbles: number; tracks_count: number; tracks: Item[] };
+type AlbumDetail = { name: string; artist: string | null; scrobbles: number; seconds: number; tracks_count: number; tracks: Item[] };
 
 type Play = { time: string; album: string | null; artist: string | null; source: string | null };
 
@@ -25,6 +26,7 @@ type TrackDetail = {
   albums: { name: string; count: number }[];
   duration?: number | null;
   scrobbles: number;
+  seconds: number;
   first_played: string;
   last_played: string;
   offset: number;
@@ -85,6 +87,7 @@ function LinkButton({ children, onClick }: { children: ReactNode; onClick: () =>
 
 export function Library({ query }: { query: (extra?: Record<string, string | number>) => string }) {
   const [stack, setStack] = useState<View[]>([{ type: "list", category: "artist" }]);
+  const [metric, setMetric] = useState<"plays" | "time">("plays");      // 목록 순위 기준: 재생 횟수 / 청취 시간
   const view = stack[stack.length - 1];
 
   const go = (v: View) => setStack((s) => [...s, v]);
@@ -117,7 +120,26 @@ export function Library({ query }: { query: (extra?: Record<string, string | num
         })}
       </div>
 
-      {view.type === "list" && <ListView key={view.category} category={view.category} query={query} onOpen={(it) => openItem(view.category, it)} />}
+      {view.type === "list" && (
+        <>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.8rem", flexWrap: "wrap" }}>
+            {([
+              ["plays", "재생 횟수 순"],
+              ["time", "청취 시간 순"],
+            ] as const).map(([m, text]) => (
+              <button
+                key={m}
+                onClick={() => setMetric(m)}
+                style={{ padding: "0.25rem 0.7rem", fontSize: "0.85rem", fontWeight: metric === m ? 700 : 400, border: metric === m ? "2px solid #8884d8" : "1px solid #666" }}
+              >
+                {text}
+              </button>
+            ))}
+            {metric === "time" && <span style={{ color: "#999", fontSize: "0.8rem" }}>스크로블 횟수 × 곡 길이 (끝까지 들었다고 가정한 추정치)</span>}
+          </div>
+          <ListView key={`${view.category}|${metric}`} category={view.category} metric={metric} query={query} onOpen={(it) => openItem(view.category, it)} />
+        </>
+      )}
       {view.type === "artist" && <ArtistView key={view.name} name={view.name} query={query} onOpen={openItem} />}
       {view.type === "album" && <AlbumView key={`${view.artist}|${view.name}`} name={view.name} artist={view.artist} query={query} onOpen={openItem} onArtist={(n) => go({ type: "artist", name: n })} />}
       {view.type === "track" && (
@@ -158,7 +180,7 @@ function useFetched<T>(path: string, deps: unknown[]) {
   return { data, error };
 }
 
-function ListView({ category, query, onOpen }: { category: Category; query: (e?: Record<string, string | number>) => string; onOpen: (i: Item) => void }) {
+function ListView({ category, metric, query, onOpen }: { category: Category; metric: "plays" | "time"; query: (e?: Record<string, string | number>) => string; onOpen: (i: Item) => void }) {
   const [items, setItems] = useState<Item[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -167,7 +189,7 @@ function ListView({ category, query, onOpen }: { category: Category; query: (e?:
   const load = useCallback(
     (offset: number) => {
       setLoading(true);
-      fetch(`${BASE_URL}/api/library/list${query({ category, offset, limit: PAGE })}`)
+      fetch(`${BASE_URL}/api/library/list${query({ category, offset, limit: PAGE, metric })}`)
         .then((res) => res.json())
         .then((d: ListResult & { error?: string }) => {
           if (d.error) return setError(d.error);
@@ -177,7 +199,7 @@ function ListView({ category, query, onOpen }: { category: Category; query: (e?:
         .catch((e) => setError(e.message))
         .finally(() => setLoading(false));
     },
-    [category, query]
+    [category, metric, query]
   );
 
   useEffect(() => {
@@ -187,14 +209,24 @@ function ListView({ category, query, onOpen }: { category: Category; query: (e?:
   }, [load]);
 
   const noun = category === "artist" ? "Artists" : category === "album" ? "Albums" : "Tracks";
-  const max = items[0]?.count ?? 1;
+  const byTime = metric === "time";
+  const max = (byTime ? items[0]?.seconds : items[0]?.count) ?? 1;
   return (
     <>
       <div style={label}>{noun} scrobbled</div>
       <div style={{ ...bigNumber, marginBottom: "1rem" }}>{total === null ? "…" : total.toLocaleString()}</div>
       {error && <p style={{ color: "#d66" }}>{error}</p>}
       {items.map((it, i) => (
-        <RankRow key={`${it.artist}|${it.name}`} rank={i + 1} item={it} max={max} kind={category} onOpen={() => onOpen(it)} />
+        <RankRow
+          key={`${it.artist}|${it.name}`}
+          rank={i + 1}
+          item={it}
+          max={max}
+          kind={category}
+          onOpen={() => onOpen(it)}
+          barFraction={byTime ? (it.seconds ?? 0) / Math.max(1, max) : undefined}
+          barText={byTime ? `${fmtHM(it.seconds ?? 0)} · ${it.count.toLocaleString()}회` : undefined}
+        />
       ))}
       {total !== null && items.length < total && (
         <div style={{ textAlign: "center", margin: "1rem 0" }}>
@@ -219,6 +251,7 @@ function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<
       </div>
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
+        <Stat title="Time" value={fmtHM(data.seconds)} />
         <Stat title="Albums" value={data.albums_count} />
         <Stat title="Tracks" value={data.tracks_count} />
       </div>
@@ -255,6 +288,7 @@ function AlbumView({
       </div>
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
+        <Stat title="Time" value={fmtHM(data.seconds)} />
         <Stat title="Tracks" value={data.tracks_count} />
       </div>
       <RankSection title="Tracks" items={data.tracks} kind="track" onOpen={(i) => onOpen("track", i, true)} />
@@ -330,6 +364,7 @@ function TrackView({
       </div>
       <div style={{ display: "flex", gap: "2rem", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={head.scrobbles} />
+        <Stat title="Time" value={fmtHM(head.seconds)} />
         <Stat title="First" value={head.first_played} />
         <Stat title="Last" value={head.last_played} />
       </div>

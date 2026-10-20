@@ -3,6 +3,7 @@ import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { Library } from "./Library";
 import { RankRow, type RankKind } from "./RankRow";
+import { fmtHM, makeFmt, type Metric } from "./format";
 import {
   BarChart,
   Bar,
@@ -24,6 +25,16 @@ import {
 } from "recharts";
 
 type DailyPoint = { date: string; count: number };
+
+type TimeSummary = {
+  total_seconds: number;
+  coverage: number;
+  days: number;
+  active_days: number;
+  avg_seconds_per_day: number;
+  avg_seconds_per_active_day: number;
+  busiest_day: { date: string; seconds: number; plays: number } | null;
+};
 
 type DayTrack = { time: string; artist: string; track: string; album: string };
 
@@ -108,6 +119,7 @@ type TopItem = {
   artist: string | null;
   album?: string | null;
   duration?: number | null;
+  seconds?: number;                 // 청취 시간 순일 때: 횟수 x 곡 길이(초)
   consistency?: Consistency | null;
 };
 
@@ -216,14 +228,37 @@ function ConsistencyLine({ c, months, plays }: { c: Consistency | null | undefin
   );
 }
 
+// 횟수 / 시간 전환 버튼 (시간 = 스크로블 횟수 x 곡 길이, 끝까지 들었다고 가정한 추정치)
+function MetricToggle({ metric, onChange }: { metric: Metric; onChange: (m: Metric) => void }) {
+  return (
+    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", margin: "0.4rem 0 0.8rem" }}>
+      {([
+        ["plays", "재생 횟수"],
+        ["time", "청취 시간"],
+      ] as const).map(([m, label]) => (
+        <button
+          key={m}
+          onClick={() => onChange(m)}
+          style={{ padding: "0.3rem 0.8rem", fontWeight: metric === m ? "bold" : "normal", border: metric === m ? "2px solid #8884d8" : "1px solid #666" }}
+        >
+          {label}
+        </button>
+      ))}
+      {metric === "time" && <span style={{ color: "#888", fontSize: "0.8rem" }}>스크로블 횟수 × 곡 길이 (끝까지 들었다고 가정한 추정치)</span>}
+    </div>
+  );
+}
+
 function YearHeatmap({
   year,
   data,
   onDayClick,
+  format,
 }: {
   year: string;
   data: DailyPoint[];
   onDayClick: (date: string) => void;
+  format: (n: number) => string;
 }) {
   const countMap = new Map(data.map((d) => [d.date, d.count]));
   const maxCount = Math.max(...data.map((d) => d.count), 1);
@@ -300,7 +335,7 @@ function YearHeatmap({
                 >
                   {inYear && (
                     <title>
-                      {day.date}: {day.count}회
+                      {day.date}: {format(day.count)}
                     </title>
                   )}
                 </rect>
@@ -324,7 +359,7 @@ function interpolateColor(a: string, b: string, t: number) {
   return `rgb(${rr},${rg},${rb})`;
 }
 
-function ListeningClock({ data }: { data: ChartPoint[] }) {
+function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n: number) => string; noun: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; hour: number; count: number } | null>(null);
 
@@ -425,8 +460,8 @@ function ListeningClock({ data }: { data: ChartPoint[] }) {
         <p style={{ fontSize: "1.8rem", fontWeight: "bold", margin: "0 0 1.2rem 0" }}>
           {formatHourKorean(busiestHour)}
         </p>
-        <p style={{ color: "#888", margin: "0 0 4px 0" }}>가장 바쁜 시간대의 스크로블</p>
-        <p style={{ fontSize: "1.8rem", fontWeight: "bold", margin: 0 }}>{maxCount}</p>
+        <p style={{ color: "#888", margin: "0 0 4px 0" }}>가장 바쁜 시간대의 {noun}</p>
+        <p style={{ fontSize: "1.8rem", fontWeight: "bold", margin: 0 }}>{format(maxCount)}</p>
       </div>
 
       {tooltip && (
@@ -447,7 +482,7 @@ function ListeningClock({ data }: { data: ChartPoint[] }) {
           }}
         >
           <div style={{ fontWeight: "bold" }}>{formatHourKorean(tooltip.hour)}</div>
-          <div>{tooltip.count}회 스크로블</div>
+          <div>{format(tooltip.count)}</div>
         </div>
       )}
     </div>
@@ -457,9 +492,11 @@ function ListeningClock({ data }: { data: ChartPoint[] }) {
 function ContributionHeatmap({
   data,
   onDayClick,
+  format,
 }: {
   data: DailyPoint[];
   onDayClick: (date: string) => void;
+  format: (n: number) => string;
 }) {
   if (data.length === 0) return null;
 
@@ -468,7 +505,7 @@ function ContributionHeatmap({
   return (
     <div>
       {years.map((year) => (
-        <YearHeatmap key={year} year={year} data={data} onDayClick={onDayClick} />
+        <YearHeatmap key={year} year={year} data={data} onDayClick={onDayClick} format={format} />
       ))}
     </div>
   );
@@ -667,6 +704,9 @@ const handleCopyPrompt = () => {
 };
 
   const [dailyData, setDailyData] = useState<DailyPoint[]>([]);
+  // 히트맵·시계·요일·월·연 그래프를 "횟수"로 볼지 "시간(곡 길이 x 횟수)"으로 볼지
+  const [metric, setMetric] = useState<Metric>("plays");
+  const [timeSummary, setTimeSummary] = useState<TimeSummary | null>(null);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [dayDetail, setDayDetail] = useState<DayDetail | null>(null);
   const [loadingDayDetail, setLoadingDayDetail] = useState(false);
@@ -697,8 +737,9 @@ const handleCopyPrompt = () => {
   const [topAlbums, setTopAlbums] = useState<TopItem[]>([]);
   const [topMonths, setTopMonths] = useState<string[]>([]);
   // Top 10 기준: 재생 많은 순 / 월별로 고르게(꾸준히) 들은 순
-  const [topMode, setTopMode] = useState<"plays" | "even">("plays");
+  const [topMode, setTopMode] = useState<"plays" | "even" | "time">("plays");
   const [evenTop, setEvenTop] = useState<{ artist: TopItem[]; track: TopItem[]; album: TopItem[]; months: string[] } | null>(null);
+  const [timeTop, setTimeTop] = useState<{ artist: TopItem[]; track: TopItem[]; album: TopItem[]; months: string[] } | null>(null);
 
   const [consCategory, setConsCategory] = useState<"artist" | "track" | "album">("track");
   const [consSort, setConsSort] = useState<"even" | "biased">("even");
@@ -754,6 +795,23 @@ const handleCopyPrompt = () => {
   );
 
   useEffect(() => {
+    if (activeTab !== "music" || topMode !== "time") return;
+    let cancelled = false;
+    const load = (category: "artist" | "track" | "album") =>
+      fetch(`${BASE_URL}/api/music/top${buildQuery({ category, limit: 10, metric: "time" })}`)
+        .then((res) => res.json())
+        .then((d) => ({ months: (d.months ?? []) as string[], items: (d.results ?? []) as TopItem[] }));
+    Promise.all([load("artist"), load("track"), load("album")])
+      .then(([a, t, al]) => {
+        if (!cancelled) setTimeTop({ artist: a.items, track: t.items, album: al.items, months: a.months });
+      })
+      .catch((err) => setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, topMode, buildQuery]);
+
+  useEffect(() => {
     if (activeTab !== "music" || topMode !== "even") return;
     let cancelled = false;
     const load = (category: "artist" | "track" | "album") =>
@@ -803,20 +861,15 @@ const handleCopyPrompt = () => {
     };
   }, [activeTab, consCategory, consSort, consMinPlays, consMinMonths, buildQuery]);
 
-  const loadAllData = useCallback(() => {
-    const qs = buildQuery();
-
-    fetch(`${BASE_URL}/api/listening/daily${qs}`)
+  // 히트맵·청취 시계·요일/월/연 그래프: 횟수 또는 시간 (metric 이 바뀌면 이 그래프들만 다시 받는다)
+  useEffect(() => {
+    const mq = buildQuery({ metric });
+    fetch(`${BASE_URL}/api/listening/daily${mq}`)
       .then((res) => res.json())
       .then((data) => setDailyData(data.days))
       .catch((err) => setError(err.message));
 
-    fetch(`${BASE_URL}/api/stats${qs}`)
-      .then((res) => res.json())
-      .then(setStats)
-      .catch((err) => setError(err.message));
-
-    fetch(`${BASE_URL}/api/listening/hourly${qs}`)
+    fetch(`${BASE_URL}/api/listening/hourly${mq}`)
       .then((res) => res.json())
       .then((data) => {
         const points = data.hours.map((h: number, i: number) => ({
@@ -827,7 +880,7 @@ const handleCopyPrompt = () => {
       })
       .catch((err) => setError(err.message));
 
-    fetch(`${BASE_URL}/api/listening/weekday${qs}`)
+    fetch(`${BASE_URL}/api/listening/weekday${mq}`)
       .then((res) => res.json())
       .then((data) => {
         const points = data.weekdays.map((w: string, i: number) => ({
@@ -838,7 +891,7 @@ const handleCopyPrompt = () => {
       })
       .catch((err) => setError(err.message));
 
-    fetch(`${BASE_URL}/api/listening/monthly${qs}`)
+    fetch(`${BASE_URL}/api/listening/monthly${mq}`)
       .then((res) => res.json())
       .then((data) => {
         const points = data.months.map((m: string, i: number) => ({
@@ -849,7 +902,7 @@ const handleCopyPrompt = () => {
       })
       .catch((err) => setError(err.message));
 
-    fetch(`${BASE_URL}/api/listening/yearly${qs}`)
+    fetch(`${BASE_URL}/api/listening/yearly${mq}`)
       .then((res) => res.json())
       .then((data) => {
         const points = data.years.map((y: number, i: number) => ({
@@ -858,6 +911,21 @@ const handleCopyPrompt = () => {
         }));
         setYearlyData(points);
       })
+      .catch((err) => setError(err.message));
+
+  }, [buildQuery, metric]);
+
+  const loadAllData = useCallback(() => {
+    const qs = buildQuery();
+
+    fetch(`${BASE_URL}/api/stats${qs}`)
+      .then((res) => res.json())
+      .then(setStats)
+      .catch((err) => setError(err.message));
+
+    fetch(`${BASE_URL}/api/time/summary${qs}`)
+      .then((res) => res.json())
+      .then((d) => setTimeSummary(d.error ? null : d))
       .catch((err) => setError(err.message));
 
     fetch(`${BASE_URL}/api/music/top${buildQuery({ category: "artist", limit: 10 })}`)
@@ -1026,10 +1094,15 @@ const handleCopyPrompt = () => {
   if (error) return <div>에러 발생: {error}</div>;
   if (!stats) return <div>불러오는 중...</div>;
 
+  const fmtVal = makeFmt(metric);
+  const axisFmt = (v: number) => (metric === "time" ? `${Math.round(v / 60)}h` : String(v));
+
   const shownTop =
     topMode === "even" && evenTop
       ? evenTop
-      : { artist: topArtists, track: topTracks, album: topAlbums, months: topMonths };
+      : topMode === "time" && timeTop
+        ? timeTop
+        : { artist: topArtists, track: topTracks, album: topAlbums, months: topMonths };
 
   return (
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
@@ -1212,6 +1285,27 @@ const handleCopyPrompt = () => {
             <li>Unique Albums: {stats.unique_albums}</li>
             <li>First Scrobble: {stats.first_scrobble ?? "-"}</li>
             <li>Last Scrobble: {stats.last_scrobble ?? "-"}</li>
+            {timeSummary && (
+              <>
+                <li>
+                  총 청취 시간: {fmtHM(timeSummary.total_seconds)}{" "}
+                  <span style={{ color: "#888", fontSize: "0.85rem" }}>
+                    (스크로블 × 곡 길이 추정 · 길이를 아는 재생 {Math.round(timeSummary.coverage * 100)}% 기준)
+                  </span>
+                </li>
+                <li>
+                  하루 평균: {fmtHM(timeSummary.avg_seconds_per_day)}{" "}
+                  <span style={{ color: "#888", fontSize: "0.85rem" }}>
+                    ({timeSummary.days}일 기준 · 청취한 날 {timeSummary.active_days}일 평균 {fmtHM(timeSummary.avg_seconds_per_active_day)})
+                  </span>
+                </li>
+                {timeSummary.busiest_day && (
+                  <li>
+                    가장 많이 들은 날: {timeSummary.busiest_day.date} ({fmtHM(timeSummary.busiest_day.seconds)}, {timeSummary.busiest_day.plays}회)
+                  </li>
+                )}
+              </>
+            )}
           </ul>
 
           {diversity && (
@@ -1245,17 +1339,19 @@ const handleCopyPrompt = () => {
             </>
           )}
           <h2>청취 활동 히트맵</h2>
-          <ContributionHeatmap data={dailyData} onDayClick={handleDayClick} />
+          <MetricToggle metric={metric} onChange={setMetric} />
+          <ContributionHeatmap data={dailyData} onDayClick={handleDayClick} format={fmtVal} />
         </>
       )}
 
       {/* Listening 탭 */}
       {activeTab === "listening" && (
         <>
+        <MetricToggle metric={metric} onChange={setMetric} />
         <h2>청취 시계</h2>
-        <ListeningClock data={hourlyData} />
+        <ListeningClock data={hourlyData} format={fmtVal} noun={metric === "time" ? "청취 시간" : "스크로블"} />
 
-          <h2>주간 스크로블</h2>
+          <h2>주간 {metric === "time" ? "청취 시간" : "스크로블"}</h2>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={weekdayData}>
               <defs>
@@ -1266,15 +1362,15 @@ const handleCopyPrompt = () => {
               </defs>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
-              <YAxis />
-              <Tooltip />
+              <YAxis tickFormatter={axisFmt} />
+              <Tooltip formatter={(v) => fmtVal(Number(v))} />
               <Area type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} fill="url(#weeklyGradient)" />
             </AreaChart>
           </ResponsiveContainer>
           {weekdayData.length > 0 && (
             <p style={{ color: "#888" }}>
               가장 바쁜 요일: {[...weekdayData].sort((a, b) => b.count - a.count)[0].label} (
-              {[...weekdayData].sort((a, b) => b.count - a.count)[0].count}회)
+              {fmtVal([...weekdayData].sort((a, b) => b.count - a.count)[0].count)})
             </p>
           )}
 
@@ -1283,8 +1379,8 @@ const handleCopyPrompt = () => {
             <LineChart data={monthlyData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
-              <YAxis />
-              <Tooltip />
+              <YAxis tickFormatter={axisFmt} />
+              <Tooltip formatter={(v) => fmtVal(Number(v))} />
               <Line type="monotone" dataKey="count" stroke="#8884d8" />
             </LineChart>
           </ResponsiveContainer>
@@ -1294,8 +1390,8 @@ const handleCopyPrompt = () => {
             <BarChart data={yearlyData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" />
-              <YAxis />
-              <Tooltip />
+              <YAxis tickFormatter={axisFmt} />
+              <Tooltip formatter={(v) => fmtVal(Number(v))} />
               <Bar dataKey="count" fill="#82ca9d" />
             </BarChart>
           </ResponsiveContainer>
@@ -1309,6 +1405,7 @@ const handleCopyPrompt = () => {
           <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", marginBottom: "0.5rem" }}>
             {([
               ["plays", "많이 들은 순"],
+              ["time", "오래 들은 순"],
               ["even", "꾸준히 들은 순"],
             ] as const).map(([mode, label]) => (
               <button
@@ -1320,6 +1417,12 @@ const handleCopyPrompt = () => {
               </button>
             ))}
           </div>
+          {topMode === "time" && (
+            <p style={{ color: "#888", fontSize: "0.85rem", textAlign: "center", marginTop: 0 }}>
+              청취 시간(스크로블 횟수 × 곡 길이, 끝까지 들었다고 가정한 추정치) 순입니다. 긴 곡·긴 앨범이 위로 올라옵니다.
+              {!timeTop && " 불러오는 중..."}
+            </p>
+          )}
           {topMode === "even" && (
             <p style={{ color: "#888", fontSize: "0.85rem", textAlign: "center", marginTop: 0 }}>
               {consMinPlays}회 이상, {consMinMonths}개월 이상에 걸쳐 들은 항목 중 월별 재생이 가장 고른 순입니다. 기준은 Consistency 탭에서 바꿀 수 있어요.
@@ -1337,6 +1440,7 @@ const handleCopyPrompt = () => {
                 {items.map((item, i) => {
                   const c = item.consistency;
                   const byEven = topMode === "even" && c?.evenness != null;
+                  const byTime = topMode === "time" && item.seconds !== undefined;
                   return (
                     <RankRow
                       key={`${item.artist}|${item.name}`}
@@ -1344,9 +1448,9 @@ const handleCopyPrompt = () => {
                       item={item}
                       max={items[0]?.count ?? 1}
                       kind={kind}
-                      extra={<ConsistencyLine c={c} months={shownTop.months} plays={byEven ? item.count : undefined} />}
-                      barFraction={byEven ? (c?.evenness ?? 0) : undefined}
-                      barText={byEven ? `${Math.round((c?.evenness ?? 0) * 100)}%` : undefined}
+                      extra={<ConsistencyLine c={c} months={shownTop.months} plays={byEven || byTime ? item.count : undefined} />}
+                      barFraction={byEven ? (c?.evenness ?? 0) : byTime ? (item.seconds ?? 0) / Math.max(1, items[0]?.seconds ?? 1) : undefined}
+                      barText={byEven ? `${Math.round((c?.evenness ?? 0) * 100)}%` : byTime ? fmtHM(item.seconds ?? 0) : undefined}
                     />
                   );
                 })}

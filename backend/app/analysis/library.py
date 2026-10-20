@@ -1,6 +1,12 @@
+from pathlib import Path
+
 import pandas as pd
 
 from app.analysis.keys import resolve_keys
+from app.lastfm.durations import CACHE_NAME, DurationLookup
+
+# data/track_durations.json (scripts/fill_durations.py 가 채움). 없으면 길이는 None.
+durations = DurationLookup(Path(__file__).resolve().parents[3] / "data" / CACHE_NAME)
 
 
 def _top_album_per_key(df: pd.DataFrame, keys: pd.Series, wanted: set[str]) -> dict[str, str]:
@@ -35,7 +41,10 @@ def ranked_page(df: pd.DataFrame, category: str, offset: int = 0, limit: int = 5
     items = []
     for key, c in page.items():
         row = first.loc[key]
-        items.append({"name": row[category], "artist": row["_rep"] or None, "album": album_of.get(key), "count": int(c)})
+        item = {"name": row[category], "artist": row["_rep"] or None, "album": album_of.get(key), "count": int(c)}
+        if category == "track":
+            item["duration"] = durations.get(item["artist"] or "", item["name"])
+        items.append(item)
     return {"category": category, "total": int(len(counts)), "total_plays": total_plays, "offset": offset, "items": items}
 
 
@@ -55,7 +64,7 @@ def artist_detail(df: pd.DataFrame, name: str) -> dict | None:
         "albums_count": int(len(alb)),
         "tracks_count": int(len(trk)),
         "albums": [{"name": n, "artist": name, "count": int(c)} for n, c in alb.items()],
-        "tracks": [{"name": n, "artist": name, "album": album_of.get(n), "count": int(c)} for n, c in trk.items()],
+        "tracks": [{"name": n, "artist": name, "album": album_of.get(n), "count": int(c), "duration": durations.get(name, n)} for n, c in trk.items()],
     }
 
 
@@ -70,7 +79,7 @@ def album_detail(df: pd.DataFrame, artist: str | None, name: str) -> dict | None
         "artist": artist,
         "scrobbles": int(len(rows)),
         "tracks_count": int(len(trk)),
-        "tracks": [{"name": n, "artist": artist, "album": name, "count": int(c)} for n, c in trk.items()],
+        "tracks": [{"name": n, "artist": artist, "album": name, "count": int(c), "duration": durations.get(artist or "", n)} for n, c in trk.items()],
     }
 
 
@@ -87,6 +96,7 @@ def track_detail(df: pd.DataFrame, artist: str | None, name: str, offset: int = 
         "name": name,
         "artist": artist,
         "album": album_of.get(key_of(artist, name)),
+        "duration": durations.get(artist or "", name),
         "scrobbles": int(len(rows)),
         "first_played": rows["_kst"].min().strftime("%Y-%m-%d"),
         "last_played": rows["_kst"].max().strftime("%Y-%m-%d"),

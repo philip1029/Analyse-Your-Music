@@ -107,10 +107,11 @@ type TopItem = {
   count: number;
   artist: string | null;
   album?: string | null;
+  duration?: number | null;
   consistency?: Consistency | null;
 };
 
-type ConsistencyItem = Consistency & { key: string; name: string; artist: string | null; album?: string | null };
+type ConsistencyItem = Consistency & { key: string; name: string; artist: string | null; album?: string | null; duration?: number | null };
 
 type ConsistencyResult = {
   category: "artist" | "track" | "album";
@@ -763,7 +764,7 @@ const handleCopyPrompt = () => {
         .then((data: ConsistencyResult) => ({
           months: data.months ?? [],
           items: (data.results ?? []).map(
-            (r): TopItem => ({ name: r.name, count: r.plays, artist: r.artist, album: r.album ?? null, consistency: r })
+            (r): TopItem => ({ name: r.name, count: r.plays, artist: r.artist, album: r.album ?? null, duration: r.duration ?? null, consistency: r })
           ),
         }));
     Promise.all([load("artist"), load("track"), load("album")])

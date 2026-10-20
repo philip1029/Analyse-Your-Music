@@ -16,7 +16,7 @@ from app.lastfm.artist_art import get_artist_art
 from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
 from app.analysis.keys import unique_count, resolve_keys
-from app.analysis.library import ranked_page, artist_detail, album_detail, track_detail
+from app.analysis.library import ranked_page, artist_detail, album_detail, track_detail, durations
 from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
     get_artist_tags_page,
@@ -211,6 +211,7 @@ def music_top(
                 albums = rows["album"]
                 albums = albums[albums.notna() & (albums != "")]
                 item["album"] = albums.value_counts().index[0] if len(albums) else None
+                item["duration"] = durations.get(item["artist"] or "", item["name"])
             results.append(item)
 
     # 날짜 편향도: 월별 재생 분포 (처음 들은 달 ~ 마지막 달)

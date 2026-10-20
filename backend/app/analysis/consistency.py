@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from app.analysis.keys import resolve_keys
+from app.analysis.library import durations
 
 # 월 단위로 나눠서 "한 시기에 몰아 들었는지, 꾸준히 들었는지"를 본다.
 #  - 구간: 그 항목을 처음 들은 달 ~ 데이터의 마지막 달 (아직 모르던 시기는 제외, 이후 안 들은 시기는 포함)
@@ -114,4 +115,6 @@ def compute_consistency(
             top_album = top_album.sort_values(["n", "album"], ascending=[False, True]).drop_duplicates("_key").set_index("_key")["album"]
             for r in rows:
                 r["album"] = top_album.get(r["key"])
+        for r in rows:
+            r["duration"] = durations.get(r["artist"] or "", r["name"])
     return {"category": category, "months": labels, "criteria": criteria, "total_candidates": total, "results": rows}

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
-import { LINE, RankRow } from "./RankRow";
+import { LINE, RankRow, fmtDuration } from "./RankRow";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
 
 type Category = "artist" | "album" | "track";
 
-type Item = { name: string; artist: string | null; album?: string | null; count: number };
+type Item = { name: string; artist: string | null; album?: string | null; count: number; duration?: number | null };
 
 type ListResult = { category: Category; total: number; total_plays: number; offset: number; items: Item[] };
 
@@ -21,6 +21,7 @@ type TrackDetail = {
   name: string;
   artist: string | null;
   album: string | null;
+  duration?: number | null;
   scrobbles: number;
   first_played: string;
   last_played: string;
@@ -306,7 +307,10 @@ function TrackView({
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <Cover kind="album" artist={head.artist} album={head.album} size={72} />
         <div>
-          <h2 style={{ margin: 0 }}>{head.name}</h2>
+          <h2 style={{ margin: 0 }}>
+            {head.name}
+            {head.duration ? <span style={{ fontWeight: 400, color: "#999" }}> ({fmtDuration(head.duration)})</span> : null}
+          </h2>
           <div>
             {head.artist && <LinkButton onClick={() => onArtist(head.artist as string)}>{head.artist}</LinkButton>}
             {head.album && (

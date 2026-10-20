@@ -3,7 +3,16 @@ import { Cover } from "./Cover";
 
 // Last.fm 라이브러리 스타일의 순위 한 줄: 순위 · 커버 · 이름/부제 · 막대(수치)
 export type RankKind = "artist" | "album" | "track";
-export type RankItem = { name: string; artist: string | null; album?: string | null; count: number };
+export type RankItem = { name: string; artist: string | null; album?: string | null; count: number; duration?: number | null };
+
+// 초 -> m:ss (1시간 이상이면 h:mm:ss)
+export function fmtDuration(sec: number | null | undefined): string {
+  if (!sec) return "";
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = String(sec % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
 
 export const LINE = "1px solid rgba(128,128,128,0.25)";
 export const BAR = "rgba(136,132,216,0.32)";
@@ -47,7 +56,10 @@ export function RankRow({
         <Cover kind="album" artist={item.artist} album={kind === "album" ? item.name : item.album} size={44} />
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</div>
+        <div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {item.name}
+          {kind === "track" && item.duration ? <span style={{ fontWeight: 400, color: "#999" }}> ({fmtDuration(item.duration)})</span> : null}
+        </div>
         {subtitle && <div style={{ color: "#999", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
         {extra}
       </div>

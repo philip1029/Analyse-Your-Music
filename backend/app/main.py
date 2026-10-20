@@ -16,6 +16,7 @@ from app.lastfm.artist_art import get_artist_art
 from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
 from app.analysis.keys import unique_count, resolve_keys
+from app.analysis.library import ranked_page, artist_detail, album_detail, track_detail
 from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
     get_artist_tags_page,
@@ -384,6 +385,41 @@ def debug_empty_album():
 def cache_invalidate_aliases():
     deleted = invalidate_aliased_cache()
     return {"deleted_files": deleted, "count": len(deleted)}
+
+@app.get("/api/library/list")
+def library_list(category: str = "artist", offset: int = 0, limit: int = 50, start: str | None = None, end: str | None = None):
+    """Last.fm 라이브러리 같은 순위 목록 (artist/album/track)."""
+    if category not in ("artist", "album", "track"):
+        return {"error": "category는 artist, album, track 중 하나여야 합니다."}
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return ranked_page(df, category, max(0, offset), min(max(1, limit), 200))
+
+
+@app.get("/api/library/artist")
+def library_artist(name: str, start: str | None = None, end: str | None = None):
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return artist_detail(df, name) or {"error": "해당 아티스트의 기록이 없습니다."}
+
+
+@app.get("/api/library/album")
+def library_album(name: str, artist: str = "", start: str | None = None, end: str | None = None):
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return album_detail(df, artist or None, name) or {"error": "해당 앨범의 기록이 없습니다."}
+
+
+@app.get("/api/library/track")
+def library_track(name: str, artist: str = "", offset: int = 0, limit: int = 50, start: str | None = None, end: str | None = None):
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return track_detail(df, artist or None, name, max(0, offset), min(max(1, limit), 200)) or {"error": "해당 곡의 기록이 없습니다."}
+
 
 @app.get("/api/album-art")
 def album_art(artist: str = "", album: str = ""):

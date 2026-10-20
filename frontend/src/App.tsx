@@ -1,4 +1,7 @@
-import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { BASE_URL } from "./config";
+import { Cover } from "./Cover";
+import { Library } from "./Library";
 import {
   BarChart,
   Bar,
@@ -141,12 +144,13 @@ type Diversity = {
   album: DiversityMetric;
 };
 
-type TabId = "overview" | "listening" | "music" | "consistency" | "discovery" | "taste" | "data";
+type TabId = "overview" | "listening" | "music" | "library" | "consistency" | "discovery" | "taste" | "data";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "listening", label: "Listening" },
   { id: "music", label: "Music" },
+  { id: "library", label: "Library" },
   { id: "consistency", label: "Consistency" },
   { id: "discovery", label: "Discovery" },
   { id: "taste", label: "Taste" },
@@ -174,78 +178,6 @@ function yearRange(year: number): DateRange {
   };
 }
 
-const BASE_URL = "http://localhost:8000";
-
-// 같은 커버를 여러 번 요청하지 않도록 세션 동안 결과를 기억한다 (null = 커버 없음)
-const coverMemo = new Map<string, Promise<string | null>>();
-
-function fetchCover(path: string): Promise<string | null> {
-  let pending = coverMemo.get(path);
-  if (!pending) {
-    pending = fetch(`${BASE_URL}${path}`)
-      .then((res) => res.json())
-      .then((data) => (data.url as string | null) ?? null)
-      .catch(() => {
-        coverMemo.delete(path); // 일시적 실패는 다음에 다시 시도
-        return null;
-      });
-    coverMemo.set(path, pending);
-  }
-  return pending;
-}
-
-// 앨범 커버(Last.fm) 또는 아티스트 사진(Deezer). 없으면 회색 칸에 첫 글자를 보여 준다.
-function Cover({
-  kind,
-  artist,
-  album,
-  size = 48,
-}: {
-  kind: "album" | "artist";
-  artist: string | null;
-  album?: string | null;
-  size?: number;
-}) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setUrl(null);
-    setFailed(false);
-    let path: string | null = null;
-    if (kind === "artist" && artist) path = `/api/artist-art?artist=${encodeURIComponent(artist)}`;
-    if (kind === "album" && artist && album) path = `/api/album-art?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`;
-    if (path) {
-      fetchCover(path).then((u) => {
-        if (!cancelled) setUrl(u);
-      });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [kind, artist, album]);
-
-  const label = kind === "artist" ? artist : album;
-  const box: CSSProperties = {
-    width: size,
-    height: size,
-    flexShrink: 0,
-    borderRadius: kind === "artist" ? "50%" : 4,
-    background: "#e6e6e6",
-    color: "#999",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: size * 0.4,
-    overflow: "hidden",
-  };
-
-  if (url && !failed) {
-    return <img src={url} alt={label ?? ""} width={size} height={size} loading="lazy" onError={() => setFailed(true)} style={{ ...box, objectFit: "cover" }} />;
-  }
-  return <div style={box}>{label ? Array.from(label)[0] : "♪"}</div>;
-}
 
 // 월별 재생 수 막대 미니 그래프 (전체 기간 달 기준이라 "지금은 안 듣는" 항목은 오른쪽이 비어 보인다)
 function Sparkline({ monthly, months, width = 96, height = 20 }: { monthly: number[]; months: string[]; width?: number; height?: number }) {
@@ -1435,6 +1367,9 @@ const handleCopyPrompt = () => {
           </div>
         </>
       )}
+
+      {/* Library 탭: Last.fm 라이브러리 같은 순위 목록과 상세 */}
+      {activeTab === "library" && <Library query={buildQuery} />}
 
       {/* Consistency 탭: 월별 재생이 고르게 퍼진 순 / 한 시기에 몰린 순 */}
       {activeTab === "consistency" && (

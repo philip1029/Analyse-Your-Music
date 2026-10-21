@@ -24,15 +24,11 @@ if [ ! -d "$DIR/data" ] || [ -z "$(ls -A "$DIR/data"/*_scrobbles.csv 2>/dev/null
   echo ""
 fi
 
-if ! python3 -c "import fastapi" 2>/dev/null; then
-  echo "백엔드 의존성 설치 중..."
-  pip3 install -r "$DIR/backend/requirements.txt"
-fi
+echo "백엔드 의존성 확인 중..."
+pip3 install -q -r "$DIR/backend/requirements.txt"
 
-if [ ! -d "$DIR/frontend/node_modules" ]; then
-  echo "프론트엔드 의존성 설치 중..."
-  (cd "$DIR/frontend" && npm install)
-fi
+echo "프론트엔드 의존성 확인 중..."
+(cd "$DIR/frontend" && npm install --silent)
 
 cleanup() {
   echo ""

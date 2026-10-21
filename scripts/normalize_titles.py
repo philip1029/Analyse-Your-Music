@@ -13,6 +13,8 @@ Apple 기록(A)과 Last.fm 기록(L)이 같은 곡/앨범 제목을 대소문자
     구두점·괄호·feat. 는 지우지 않으므로 "Intro"와 "Intro (Live)" 같은 다른 제목은 합치지 않는다.
   - 통일 표기: 묶음 안에서 L 행에 가장 많이 쓰인 표기 (동률이면 전체 행 수, 그다음 사전순).
     L 행이 하나도 없는 묶음은 Last.fm 표기를 알 수 없으므로 건드리지 않는다.
+  - config/title_merge.txt 에 "곡|앨범 :: 아티스트 :: 변형 -> 통일 표기" 로 적은 제목은 철자 규칙과 상관없이 직접 합친다
+    (예: 같은 앨범의 한글·영문 표기. 앱의 "앨범·곡 병합" 화면이 이 파일을 쓴다). 통일 표기는 Last.fm 이 쓰는 표기로 적는다.
   - source 열은 바꾸지 않는다. 기본은 dry-run, --apply 를 주면 백업(.bak_titlenorm_*)을 만들고
     data/title_normalize_log.csv 에 바뀐 행을 남긴다. 제거 기록(preprocess_removed.csv)의 제목도 같은
     규칙으로 맞춘다. 바꾼 뒤 같은 키(uts+artist+track)가 중복되면 아무것도 쓰지 않고 중단한다.
@@ -41,7 +43,42 @@ import preprocess as pp  # noqa: E402  (read_csv / write_csv_atomic 재사용)
 from normalize_artists import simple_key  # noqa: E402
 
 FIELDS = ("track", "album")
-LOG_FIELDS = ["uts", "utc_time", "artist", "source", "field", "old_title", "new_title", "rule", "changed_at"]
+LOG_FIELDS = ["uts", "utc_time", "artist", "source", "field", "old_title", "new_title", "rule", "changed_at", "track"]
+MANUAL_MERGE_FILE = Path(__file__).resolve().parent.parent / "config" / "title_merge.txt"
+KIND_TO_FIELD = {"track": "track", "album": "album", "곡": "track", "앨범": "album"}
+
+
+def load_manual_title_merges(path):
+    """'곡|앨범 :: 아티스트 :: 변형 -> 통일 표기' 형식의 직접 합치기 목록. 반환: {(필드, 아티스트, 변형): 통일 표기}."""
+    merges = {}
+    if path and Path(path).exists():
+        for line in Path(path).read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(" :: ", 2)
+            if len(parts) != 3 or " -> " not in parts[2] or parts[0].strip() not in KIND_TO_FIELD:
+                continue
+            v, c = parts[2].split(" -> ", 1)
+            if v.strip() and c.strip() and v.strip() != c.strip():
+                merges[(KIND_TO_FIELD[parts[0].strip()], parts[1].strip(), v.strip())] = c.strip()
+    return merges
+
+
+def apply_manual_title_merges(rows, maps, groups, manual):
+    """직접 합치기를 mapping 에 더한다. 그 아티스트의 기록에 변형 제목이 실제로 있을 때만. 통일 표기가 자동 규칙으로 다시 바뀌면 그쪽을 따른다."""
+    present = {f: {(r.get("artist", ""), r.get(f, "")) for r in rows} for f in FIELDS}
+    applied = {f: set() for f in FIELDS}
+    for (f, artist, v), c in manual.items():
+        if (artist, v) not in present[f]:
+            continue
+        final = maps[f].get((artist, c), c)
+        if v == final:
+            continue
+        maps[f][(artist, v)] = final
+        groups[f].append((artist, final, [v]))
+        applied[f].add((artist, v))
+    return applied
 
 
 def build_title_mapping(rows, field):
@@ -73,6 +110,7 @@ def build_title_mapping(rows, field):
 def main():
     ap = argparse.ArgumentParser(description="곡/앨범 제목 표기를 Last.fm 표기로 통일 (기본 dry-run)")
     ap.add_argument("--data-dir", default=str(pp.DEFAULT_DATA_DIR))
+    ap.add_argument("--manual-merge", default=str(MANUAL_MERGE_FILE))
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--json", action="store_true", help="결과를 JSON 한 줄로만 출력")
     args = ap.parse_args()
@@ -85,6 +123,7 @@ def main():
     maps, groups, skipped = {}, {}, {}
     for f in FIELDS:
         maps[f], groups[f], skipped[f] = build_title_mapping(rows, f)
+    manual_applied = apply_manual_title_merges(rows, maps, groups, load_manual_title_merges(args.manual_merge))
 
     changed = {f: Counter() for f in FIELDS}
     for r in rows:
@@ -119,7 +158,8 @@ def main():
             if new:
                 nr[f] = new
                 log.append({"uts": r["uts"], "utc_time": r.get("utc_time", ""), "artist": r.get("artist", ""), "source": r.get("source", ""),
-                            "field": f, "old_title": r[f], "new_title": new, "rule": "case_space_to_lastfm", "changed_at": now})
+                            "field": f, "old_title": r[f], "new_title": new, "track": r.get("track", ""),
+                            "rule": "manual_merge" if (r.get("artist", ""), r[f]) in manual_applied[f] else "case_space_to_lastfm", "changed_at": now})
         k = (nr["uts"], nr.get("artist", ""), nr["track"])
         if k in keys:
             raise SystemExit(f"이름을 바꾸면 같은 키(uts+artist+track)가 중복됩니다: {k} — 아무것도 쓰지 않고 중단합니다.")

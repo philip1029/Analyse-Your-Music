@@ -12,7 +12,7 @@ type Preview = { variant: Stats; canonical: Stats; suggest_swap: boolean; collis
 type Rule = { variant: string; canonical: string; pending: boolean; restorable: number };
 
 // 이름 입력 + 기존 아티스트 자동완성 (선택한 기간과 상관없이 전체 기록에서 찾는다)
-function ArtistPicker({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+export function ArtistPicker({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const [hits, setHits] = useState<{ name: string; count: number }[]>([]);
   const [open, setOpen] = useState(false);
   useEffect(() => {

@@ -28,6 +28,20 @@ def _run_git(args: list[str]) -> str | None:
         return None
 
 
+def _remote_in_local_history(remote_sha: str) -> bool:
+    """GitHub 최신 커밋이 이미 내 로컬 기록에 들어 있는지 (내가 앞서 있으면 받을 업데이트가 아니다)."""
+    try:
+        result = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", remote_sha, "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            timeout=5,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0       # 1: 조상이 아님, 128: 내 저장소에 없는 커밋 → 둘 다 받을 업데이트가 있다
+
+
 def _parse_owner_repo(remote_url: str) -> tuple[str, str] | None:
     # https://github.com/owner/repo(.git) 또는 git@github.com:owner/repo(.git) 둘 다 지원
     match = re.search(r"github\.com[:/]([^/]+)/([^/.]+?)(\.git)?$", remote_url)
@@ -81,7 +95,8 @@ def check_for_update() -> dict:
 
     result = {
         "checked": True,
-        "update_available": remote_sha != local_sha,
+        # 같거나, 원격 최신 커밋이 이미 내 기록 안에 있으면(= 내가 푸시하지 않은 커밋만 더 있으면) 받을 업데이트가 아니다
+        "update_available": remote_sha != local_sha and not _remote_in_local_history(remote_sha),
         "local_sha": local_sha[:7],
         "remote_sha": remote_sha[:7],
         "remote_message": remote_message,

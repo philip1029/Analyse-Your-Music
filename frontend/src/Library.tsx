@@ -11,6 +11,7 @@ import { CAT } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
 import { MissingArtists } from "./ArtistFix";
 import { MergeArtists } from "./ArtistMerge";
+import { MergeTitles } from "./TitleMerge";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
 
@@ -56,7 +57,7 @@ type View =
   | { type: "list"; category: Category }
   | { type: "covers" }
   | { type: "artists" }
-  | { type: "merge" }
+  | { type: "merge"; target?: "artist" | "album" | "track" }
   | { type: "artist"; name: string }
   | { type: "album"; name: string; artist: string | null }
   | { type: "track"; name: string; artist: string | null; album: string | null };   // album: 이 앨범에서 들은 기록만 (앨범 페이지에서 열 때)
@@ -190,11 +191,11 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
         </button>
         {(["artist", "album", "track"] as Category[]).map(catButton)}
         <button
-          onClick={() => setStack([{ type: "merge" }])}
-          title="같은 사람인데 이름이 다른 아티스트를 하나로 합치기"
+          onClick={() => setStack([{ type: "merge", target: "artist" }])}
+          title="이름이 다르게 적힌 같은 아티스트·앨범·곡을 하나로 합치기"
           style={{ padding: "0.35rem 0.9rem", marginLeft: "auto", fontWeight: view.type === "merge" ? 700 : 400, border: view.type === "merge" ? "2px solid #8884d8" : "1px solid #666" }}
         >
-          아티스트 병합
+          병합
         </button>
         <button
           onClick={() => setStack([{ type: "artists" }])}
@@ -274,7 +275,32 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
       )}
       {view.type === "covers" && <MissingCovers />}
       {view.type === "artists" && <MissingArtists />}
-      {view.type === "merge" && <MergeArtists />}
+      {view.type === "merge" && (
+        <>
+          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+            {(["artist", "album", "track"] as const).map((k) => {
+              const active = (view.target ?? "artist") === k;
+              return (
+                <button
+                  key={k}
+                  onClick={() => setStack([{ type: "merge", target: k }])}
+                  style={{
+                    padding: "0.3rem 0.9rem",
+                    fontWeight: active ? 700 : 400,
+                    borderStyle: "solid",
+                    borderWidth: active ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
+                    borderColor: active ? CAT[k].main : `#666 #666 ${CAT[k].main} #666`,
+                    color: active ? CAT[k].main : undefined,
+                  }}
+                >
+                  {k === "artist" ? "아티스트" : k === "album" ? "앨범" : "곡"}
+                </button>
+              );
+            })}
+          </div>
+          {(view.target ?? "artist") === "artist" ? <MergeArtists /> : <MergeTitles key={view.target} kind={view.target as "album" | "track"} />}
+        </>
+      )}
       {view.type === "artist" && <ArtistView key={view.name} name={view.name} query={query} onOpen={openItem} />}
       {view.type === "album" && <AlbumView key={`${view.artist}|${view.name}`} name={view.name} artist={view.artist} query={query} onOpen={openItem} onArtist={(n) => go({ type: "artist", name: n })} />}
       {view.type === "track" && (

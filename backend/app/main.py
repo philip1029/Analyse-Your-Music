@@ -26,7 +26,7 @@ from app.analysis.keys import unique_count, resolve_all
 from app.analysis.library import ranked_page, artist_detail, album_detail, track_detail, durations
 from app.analysis.search import search_library
 from app.analysis.artist_fill import apply_assignments, missing_groups
-from app.analysis import artist_merge
+from app.analysis import artist_merge, title_merge
 from app.analysis.listening_time import attach_durations, time_summary, weights
 from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
@@ -654,6 +654,79 @@ def artist_merge_undo(body: ArtistMergeBody):
     """합치기를 되돌린다: 규칙을 지우고 그때 이름이 바뀐 행을 원래 이름으로 복원한다(백업·변경 기록 포함)."""
     try:
         return artist_merge.undo_merge(DATA_DIR, ARTIST_MERGE_FILE, ARTIST_MERGE_FILE.with_name("artist_canonical.txt"), body.variant, body.canonical)
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+TITLE_MERGE_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "title_merge.txt"
+
+
+@app.get("/api/title-merge/titles")
+def title_merge_titles(kind: str = "album", artist: str = ""):
+    """한 아티스트의 앨범/곡 표기별 행 수(Apple/Last.fm). 합칠 두 표기를 고르는 데 쓴다."""
+    if kind not in ("album", "track"):
+        return {"error": "kind 는 album 또는 track 이어야 합니다."}
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return {"kind": kind, "artist": artist, "titles": title_merge.titles_of(df, artist, kind)}
+
+
+@app.get("/api/title-merge/preview")
+def title_merge_preview(kind: str = "album", artist: str = "", variant: str = "", canonical: str = ""):
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return title_merge.preview(df, kind, artist, variant, canonical, TITLE_MERGE_FILE)
+
+
+@app.get("/api/title-merge/rules")
+def title_merge_rules():
+    """직접 합치기로 정한 앨범/곡 규칙과, 되돌리면 복원될 행 수."""
+    df = get_filtered_df(None, None)
+    rules = []
+    for r in title_merge.load_rules(TITLE_MERGE_FILE):
+        present = df is not None and bool(((df["artist"] == r["artist"]) & (df[r["kind"]] == r["variant"])).any())
+        rules.append({**r, "pending": present, "restorable": title_merge.restorable_rows(df, DATA_DIR, r["kind"], r["artist"], r["variant"], r["canonical"]) if df is not None else 0})
+    return {"rules": rules}
+
+
+class TitleMergeBody(BaseModel):
+    kind: str
+    artist: str
+    variant: str
+    canonical: str
+
+
+@app.post("/api/title-merge")
+def title_merge_apply(body: TitleMergeBody):
+    """한 아티스트 안에서 variant 제목의 모든 기록을 canonical 로 합친다. 규칙을 config/title_merge.txt 에 남기고 normalize_titles.py 로 반영한다(백업·기록 포함)."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    check = title_merge.preview(df, body.kind, body.artist, body.variant, body.canonical, TITLE_MERGE_FILE)
+    if check["error"]:
+        return {"error": check["error"]}
+    script = Path(__file__).resolve().parent.parent.parent / "scripts" / "normalize_titles.py"
+    before = title_merge.add_rule(TITLE_MERGE_FILE, body.kind, body.artist, body.variant, body.canonical)
+    try:
+        run = subprocess.run(["python3", str(script), "--apply", "--json"], capture_output=True, text=True, timeout=120)
+        json_lines = [ln for ln in run.stdout.splitlines() if ln.startswith("{")]
+        result = json.loads(json_lines[-1]) if run.returncode == 0 and json_lines else None
+    except Exception as e:  # noqa: BLE001
+        title_merge.restore_rules(TITLE_MERGE_FILE, before)
+        return {"error": f"병합 실행에 실패했어요: {e}"}
+    if result is None:
+        title_merge.restore_rules(TITLE_MERGE_FILE, before)
+        return {"error": f"병합 실행에 실패했어요: {(run.stderr or run.stdout)[-300:]}"}
+    field = "tracks" if body.kind == "track" else "albums"
+    return {"applied_rows": result.get(field, 0), "backup": result.get("backup"), "kind": body.kind, "artist": body.artist, "variant": body.variant, "canonical": body.canonical}
+
+
+@app.post("/api/title-merge/undo")
+def title_merge_undo(body: TitleMergeBody):
+    try:
+        return title_merge.undo_merge(DATA_DIR, TITLE_MERGE_FILE, body.kind, body.artist, body.variant, body.canonical)
     except ValueError as e:
         return {"error": str(e)}
 

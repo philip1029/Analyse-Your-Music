@@ -686,6 +686,15 @@ const handleCopyPrompt = () => {
   const [invalidating, setInvalidating] = useState(false);
   const [invalidateMessage, setInvalidateMessage] = useState<string | null>(null);
 
+  const [configStatus, setConfigStatus] = useState<{ has_api_key: boolean; username: string } | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [usernameInput, setUsernameInput] = useState("");
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configMessage, setConfigMessage] = useState<string | null>(null);
+
+  const [installingDeps, setInstallingDeps] = useState(false);
+  const [installMessage, setInstallMessage] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   const [dateRange, setDateRange] = useState<DateRange>(ALL_TIME);
@@ -965,6 +974,16 @@ const handleCopyPrompt = () => {
   }, []);
 
   useEffect(() => {
+    fetch(`${BASE_URL}/api/config`)
+      .then((res) => res.json())
+      .then((data) => {
+        setConfigStatus(data);
+        setUsernameInput(data.username || "");
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (artistTags.length === 0 && !loadingTags) {
       loadArtistTagsPage(1);
     }
@@ -983,6 +1002,44 @@ const handleCopyPrompt = () => {
       .catch((err) => setInvalidateMessage(`에러: ${err.message}`))
       .finally(() => setInvalidating(false));
   };
+
+  const handleSaveConfig = () => {
+    setSavingConfig(true);
+    setConfigMessage(null);
+
+    fetch(`${BASE_URL}/api/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: apiKeyInput || null, username: usernameInput || null }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        setConfigStatus(data);
+        setApiKeyInput("");
+        setConfigMessage("저장했어요.");
+      })
+      .catch((err) => setConfigMessage(`에러: ${err.message}`))
+      .finally(() => setSavingConfig(false));
+  };
+
+  const handleInstallDeps = () => {
+    setInstallingDeps(true);
+    setInstallMessage(null);
+
+    fetch(`${BASE_URL}/api/install-deps`, { method: "POST" })
+      .then((res) => res.json())
+      .then((data: { pip: { success: boolean }; npm: { success: boolean } }) => {
+        const pipOk = data.pip.success;
+        const npmOk = data.npm.success;
+        setInstallMessage(
+          `${pipOk ? "✅" : "❌"} 백엔드 의존성 · ${npmOk ? "✅" : "❌"} 프론트엔드 의존성` +
+            (pipOk && npmOk ? " — 설치 완료" : " — 자세한 내용은 서버를 실행 중인 터미널을 확인하세요.")
+        );
+      })
+      .catch((err) => setInstallMessage(`에러: ${err.message}`))
+      .finally(() => setInstallingDeps(false));
+  };
+
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -1765,6 +1822,44 @@ const handleCopyPrompt = () => {
               </button>
             </div>
           )}
+
+          <h2>⚙️ 설정</h2>
+
+          <div style={{ marginBottom: "1.5rem", maxWidth: 420 }}>
+            <label style={{ display: "block", fontSize: "0.85rem", color: "#888", marginBottom: "0.3rem" }}>
+              Last.fm API Key {configStatus?.has_api_key && "(설정됨 — 바꿀 때만 입력)"}
+            </label>
+            <input
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              placeholder={configStatus?.has_api_key ? "••••••••" : "last.fm/api/account/create 에서 발급"}
+              style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem", boxSizing: "border-box" }}
+            />
+
+            <label style={{ display: "block", fontSize: "0.85rem", color: "#888", marginBottom: "0.3rem" }}>
+              Last.fm 유저네임
+            </label>
+            <input
+              type="text"
+              value={usernameInput}
+              onChange={(e) => setUsernameInput(e.target.value)}
+              placeholder="last.fm 프로필의 아이디"
+              style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem", boxSizing: "border-box" }}
+            />
+
+            <button onClick={handleSaveConfig} disabled={savingConfig} style={{ padding: "0.5rem 1rem" }}>
+              {savingConfig ? "저장 중..." : "저장"}
+            </button>
+            {configMessage && <p style={{ color: "#666", marginTop: "0.5rem" }}>{configMessage}</p>}
+          </div>
+
+          <div style={{ marginBottom: "1.5rem" }}>
+            <button onClick={handleInstallDeps} disabled={installingDeps} style={{ padding: "0.5rem 1rem" }}>
+              {installingDeps ? "설치 중..." : "📦 의존 모듈 설치"}
+            </button>
+            {installMessage && <p style={{ color: "#666", marginTop: "0.5rem" }}>{installMessage}</p>}
+          </div>
 
           <h2>데이터 상태</h2>
 

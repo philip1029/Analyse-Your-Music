@@ -35,6 +35,8 @@ from app.analysis.taste import (
 )
 from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
+from app.env_config import get_config_status, save_config
+from app.deps_install import install_deps
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
@@ -92,6 +94,26 @@ def update_check():
 @app.post("/api/update-apply")
 def update_apply():
     return apply_update()
+
+
+@app.get("/api/config")
+def config_get():
+    return get_config_status()
+
+
+class ConfigBody(BaseModel):
+    api_key: str | None = None
+    username: str | None = None
+
+
+@app.post("/api/config")
+def config_set(body: ConfigBody):
+    return save_config(body.api_key, body.username)
+
+
+@app.post("/api/install-deps")
+def install_deps_endpoint():
+    return install_deps()
 
 
 @app.get("/api/stats")

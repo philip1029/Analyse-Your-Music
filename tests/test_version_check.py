@@ -56,5 +56,58 @@ class RemoteInHistoryTest(unittest.TestCase):
         self.assertFalse(version_check._remote_in_local_history(other))
 
 
+class SemverTest(unittest.TestCase):
+    def test_parse(self):
+        self.assertEqual(version_check.parse_semver("1.2.3"), (1, 2, 3, None))
+        self.assertEqual(version_check.parse_semver("v0.1.0-beta"), (0, 1, 0, "beta"))
+        self.assertEqual(version_check.parse_semver("1.0.0-rc.1+build.5"), (1, 0, 0, "rc.1"))
+
+    def test_parse_rejects_non_semver(self):
+        for bad in (None, "", "1.2", "01.2.3", "1.2.3.4", "abc", "1.2.3-"):
+            self.assertIsNone(version_check.parse_semver(bad), bad)
+
+    def test_bump_kind(self):
+        cases = [
+            ("0.1.0", "1.0.0", "major"),
+            ("0.1.0", "0.2.0", "minor"),
+            ("0.1.0", "0.1.1", "patch"),
+            ("0.1.0-beta", "0.1.0", "pre"),
+            ("0.1.0-beta", "0.1.0-beta.2", "pre"),
+            ("0.1.0-beta.2", "0.1.0-beta.11", "pre"),
+            ("0.1.0-alpha", "0.1.0-beta", "pre"),
+            ("0.1.0-beta", "0.2.0-beta", "minor"),
+        ]
+        for local, remote, kind in cases:
+            self.assertEqual(version_check.bump_kind(local, remote), kind, (local, remote))
+
+    def test_bump_kind_none_when_not_newer_or_unparseable(self):
+        for local, remote in [("0.2.0", "0.1.0"), ("0.1.0", "0.1.0"), ("0.1.0", "0.1.0-beta"), ("0.1.0-beta", "0.1.0-alpha"), (None, "0.2.0"), ("0.1.0", "x")]:
+            self.assertIsNone(version_check.bump_kind(local, remote), (local, remote))
+
+
+class LocalVersionTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self._root = version_check.REPO_ROOT
+        version_check.REPO_ROOT = Path(self.tmp.name)
+
+    def tearDown(self):
+        version_check.REPO_ROOT = self._root
+        self.tmp.cleanup()
+
+    def test_reads_version_file(self):
+        (Path(self.tmp.name) / "VERSION").write_text("0.1.0-beta\n")
+        self.assertEqual(version_check.read_local_version(), "0.1.0-beta")
+
+    def test_missing_or_invalid_file_is_none(self):
+        self.assertIsNone(version_check.read_local_version())
+        (Path(self.tmp.name) / "VERSION").write_text("not a version")
+        self.assertIsNone(version_check.read_local_version())
+
+    def test_repo_version_file_is_valid(self):
+        real = (self._root / "VERSION").read_text().strip()
+        self.assertIsNotNone(version_check.parse_semver(real))
+
+
 if __name__ == "__main__":
     unittest.main()

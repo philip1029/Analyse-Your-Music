@@ -148,7 +148,15 @@ function detectPeriod(range: { start?: string; end?: string }): { kind: "year" |
 }
 
 // Data 탭: 왼쪽 정렬한 카드(패널) 레이아웃
-const DATA_PANEL: CSSProperties = { border: "1px solid rgba(128,128,128,0.3)", borderRadius: 10, padding: "1.2rem 1.3rem" };
+// 업데이트 배너에 붙는 SemVer 변화 종류
+const BUMP_LABEL: Record<string, string> = {
+  major: "호환이 깨지는 큰 변경",
+  minor: "기능 추가",
+  patch: "버그 수정",
+  pre: "정식 버전 쪽으로",
+};
+
+const DATA_PANEL: CSSProperties ={ border: "1px solid rgba(128,128,128,0.3)", borderRadius: 10, padding: "1.2rem 1.3rem" };
 const DATA_TITLE: CSSProperties = { margin: "0 0 0.8rem", fontSize: "1.2rem" };
 const DATA_LABEL: CSSProperties = { display: "block", fontSize: "0.85rem", color: "#999", margin: "0 0 0.3rem" };
 const DATA_INPUT: CSSProperties = { width: "100%", padding: "0.5rem", marginBottom: "0.9rem", boxSizing: "border-box" };
@@ -673,6 +681,9 @@ const handleCopyPrompt = () => {
 
   const [updateInfo, setUpdateInfo] = useState<{
     update_available: boolean;
+    local_version?: string | null;
+    remote_version?: string | null;
+    bump?: "major" | "minor" | "patch" | "pre" | null;
     remote_sha?: string;
     remote_message?: string;
   } | null>(null);
@@ -1041,7 +1052,12 @@ const handleCopyPrompt = () => {
   return (
     <ShareProvider>
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>Analyse Your Music</h1>
+      <h1>
+        Analyse Your Music
+        {updateInfo?.local_version && (
+          <span style={{ fontSize: "0.9rem", fontWeight: 500, marginLeft: "0.6rem", opacity: 0.6, letterSpacing: 0 }}>v{updateInfo.local_version}</span>
+        )}
+      </h1>
 
       {updateInfo?.update_available && !updateDismissed && (
         <div
@@ -1058,7 +1074,11 @@ const handleCopyPrompt = () => {
           }}
         >
           <span>
-            🔔 새 업데이트가 있어요{updateInfo.remote_message ? `: "${updateInfo.remote_message}"` : ""}.
+            🔔 새 업데이트가 있어요
+            {updateInfo.remote_version && updateInfo.local_version && updateInfo.remote_version !== updateInfo.local_version
+              ? ` (v${updateInfo.local_version} → v${updateInfo.remote_version}${BUMP_LABEL[updateInfo.bump ?? ""] ? `, ${BUMP_LABEL[updateInfo.bump ?? ""]}` : ""})`
+              : ""}
+            {updateInfo.remote_message ? `: "${updateInfo.remote_message}"` : ""}.
             {updateApplyMessage ? ` ${updateApplyMessage}` : ""}
           </span>
           <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>

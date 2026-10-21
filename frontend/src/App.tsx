@@ -731,6 +731,15 @@ const handleCopyPrompt = () => {
   const [cachingTags, setCachingTags] = useState(false);
   const [cacheMessage, setCacheMessage] = useState<string | null>(null);
 
+  const [updateInfo, setUpdateInfo] = useState<{
+    update_available: boolean;
+    remote_sha?: string;
+    remote_message?: string;
+  } | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
+  const [updateApplyMessage, setUpdateApplyMessage] = useState<string | null>(null);
+
   const buildQuery = useCallback(
     (extra: Record<string, string | number> = {}) => {
       const params = new URLSearchParams();
@@ -947,6 +956,15 @@ const handleCopyPrompt = () => {
   }, [loadAllData]);
 
   useEffect(() => {
+    fetch(`${BASE_URL}/api/update-check`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.checked) setUpdateInfo(data);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (artistTags.length === 0 && !loadingTags) {
       loadArtistTagsPage(1);
     }
@@ -1059,6 +1077,27 @@ const handleCopyPrompt = () => {
       .finally(() => setLoadingDayDetail(false));
   };
 
+  const handleApplyUpdate = () => {
+    setApplyingUpdate(true);
+    setUpdateApplyMessage(null);
+
+    fetch(`${BASE_URL}/api/update-apply`, { method: "POST" })
+      .then((res) => res.json())
+      .then((data: { success: boolean; output: string }) => {
+        if (data.success) {
+          setUpdateApplyMessage("업데이트 완료! 서버가 자동으로 재시작됩니다. 잠시 후 새로고침됩니다...");
+          setTimeout(() => window.location.reload(), 3000);
+        } else {
+          setUpdateApplyMessage(`업데이트 실패: ${data.output}`);
+          setApplyingUpdate(false);
+        }
+      })
+      .catch((err) => {
+        setUpdateApplyMessage(`에러: ${err.message}`);
+        setApplyingUpdate(false);
+      });
+  };
+
   if (error) return <div>에러 발생: {error}</div>;
   if (!stats)
     return (
@@ -1083,6 +1122,43 @@ const handleCopyPrompt = () => {
     <ShareProvider>
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
       <h1>Analyse Your Music</h1>
+
+      {updateInfo?.update_available && !updateDismissed && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "1rem",
+            background: "#eef6ff",
+            border: "1px solid #8ec0f2",
+            borderRadius: 8,
+            padding: "0.75rem 1rem",
+            marginBottom: "1rem",
+          }}
+        >
+          <span>
+            🔔 새 업데이트가 있어요{updateInfo.remote_message ? `: "${updateInfo.remote_message}"` : ""}.
+            {updateApplyMessage ? ` ${updateApplyMessage}` : ""}
+          </span>
+          <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+            <button
+              onClick={() => setUpdateDismissed(true)}
+              disabled={applyingUpdate}
+              style={{ padding: "0.3rem 0.6rem" }}
+            >
+              나중에 하기
+            </button>
+            <button
+              onClick={handleApplyUpdate}
+              disabled={applyingUpdate}
+              style={{ padding: "0.3rem 0.6rem", background: "#2563eb", color: "white" }}
+            >
+              {applyingUpdate ? "업데이트 중..." : "지금 하기"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 상단 컨트롤: 새로고침 · 태그 캐시 (기간 선택은 탭 아래 PeriodBar 로 통합) */}
       <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center" }}>

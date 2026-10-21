@@ -25,6 +25,8 @@ from app.analysis.filters import filter_by_date_range
 from app.analysis.keys import unique_count, resolve_all
 from app.analysis.library import ranked_page, artist_detail, album_detail, track_detail, durations
 from app.analysis.search import search_library
+from app.analysis.artist_fill import apply_assignments, missing_groups
+from app.analysis import artist_merge
 from app.analysis.listening_time import attach_durations, time_summary, weights
 from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
@@ -105,11 +107,15 @@ def config_get():
 class ConfigBody(BaseModel):
     api_key: str | None = None
     username: str | None = None
+    apple_dir: str | None = None      # None: 변경 없음 / "": 지움 / 경로: Apple Music 내보내기 폴더
 
 
 @app.post("/api/config")
 def config_set(body: ConfigBody):
-    return save_config(body.api_key, body.username)
+    try:
+        return save_config(body.api_key, body.username, body.apple_dir)
+    except ValueError as e:
+        return {"error": str(e)}
 
 
 @app.post("/api/install-deps")
@@ -436,6 +442,26 @@ def refresh_scrobbles():
     except Exception as e:  # noqa: BLE001
         preprocess = {"error": str(e)}
 
+    # 아티스트 표기도 통일한다 (대소문자·띄어쓰기 차이 + config/artist_merge.txt 의 직접 병합 목록). 바꿀 행이 없으면 아무것도 쓰지 않는다.
+    artists_norm = None
+    art_script = script_path.with_name("normalize_artists.py")
+    try:
+        art = subprocess.run(
+            ["python3", str(art_script), "--apply", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if art.returncode == 0:
+            json_lines = [ln for ln in art.stdout.splitlines() if ln.startswith("{")]
+            artists_norm = json.loads(json_lines[-1]) if json_lines else None
+        else:
+            artists_norm = {"error": (art.stderr or art.stdout)[-500:]}
+    except subprocess.TimeoutExpired:
+        artists_norm = {"error": "아티스트 통일 실행 시간 초과"}
+    except Exception as e:  # noqa: BLE001
+        artists_norm = {"error": str(e)}
+
     # 전처리 뒤에 곡/앨범 제목 표기를 Last.fm 표기로 통일한다 (Apple 기록의 대소문자 차이로 같은 곡이
     # 둘로 갈라지는 것을 막는다). 바꿀 행이 없으면 파일을 건드리지 않고, 바꾸면 백업과 기록을 남긴다.
     titles = None
@@ -499,7 +525,7 @@ def refresh_scrobbles():
         except Exception as e:  # noqa: BLE001
             tags_result = {"error": str(e)}
 
-    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "titles": titles, "durations": durations_result, "tags": tags_result}
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "artists": artists_norm, "titles": titles, "durations": durations_result, "tags": tags_result}
 
 @app.get("/api/taste/evolution")
 def taste_evolution(
@@ -541,6 +567,96 @@ def debug_empty_album():
 def cache_invalidate_aliases():
     deleted = invalidate_aliased_cache()
     return {"deleted_files": deleted, "count": len(deleted)}
+
+@app.get("/api/artist-missing")
+def artist_missing(limit: int = 200):
+    """artist 가 빈 행을 (곡, 앨범)으로 묶은 목록과 후보 아티스트. 기간 필터는 적용하지 않는다(전체 기록)."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return missing_groups(df, min(max(1, limit), 1000))
+
+
+class ArtistFillItem(BaseModel):
+    track: str
+    album: str = ""
+    artist: str
+
+
+class ArtistFillBody(BaseModel):
+    assignments: list[ArtistFillItem]
+
+
+@app.post("/api/artist-fill")
+def artist_fill(body: ArtistFillBody):
+    """빈 artist 를 직접 채운다. 이미 있는 아티스트와 표기만 다르면 기존 표기로 합친다. 백업과 변경 기록(data/artist_fill_log.csv)을 남긴다."""
+    try:
+        return apply_assignments(DATA_DIR, [a.model_dump() for a in body.assignments])
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+ARTIST_MERGE_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "artist_merge.txt"
+
+
+@app.get("/api/artist-merge/preview")
+def artist_merge_preview(variant: str = "", canonical: str = ""):
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return artist_merge.preview(df, variant, canonical, ARTIST_MERGE_FILE)
+
+
+@app.get("/api/artist-merge/rules")
+def artist_merge_rules():
+    """지금까지 직접 합치기로 정한 규칙 (변형 -> 통일 이름)과, 그 변형 이름이 아직 기록에 남아 있는지."""
+    df = get_filtered_df(None, None)
+    present = set(df["artist"].unique()) if df is not None else set()
+    return {
+        "rules": [
+            {"variant": v, "canonical": c, "pending": v in present, "restorable": artist_merge.restorable_rows(df, DATA_DIR, v, c) if df is not None else 0}
+            for v, c in artist_merge.load_rules(ARTIST_MERGE_FILE).items()
+        ]
+    }
+
+
+class ArtistMergeBody(BaseModel):
+    variant: str
+    canonical: str
+
+
+@app.post("/api/artist-merge")
+def artist_merge_apply(body: ArtistMergeBody):
+    """variant 아티스트의 모든 기록을 canonical 로 합친다. 규칙을 config/artist_merge.txt 에 남기고 normalize_artists.py 로 반영한다(백업·기록 포함)."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    check = artist_merge.preview(df, body.variant, body.canonical, ARTIST_MERGE_FILE)
+    if check["error"]:
+        return {"error": check["error"]}
+    script = Path(__file__).resolve().parent.parent.parent / "scripts" / "normalize_artists.py"
+    before = artist_merge.add_rule(ARTIST_MERGE_FILE, body.variant, body.canonical)
+    try:
+        run = subprocess.run(["python3", str(script), "--apply", "--json"], capture_output=True, text=True, timeout=120)
+        json_lines = [ln for ln in run.stdout.splitlines() if ln.startswith("{")]
+        result = json.loads(json_lines[-1]) if run.returncode == 0 and json_lines else None
+    except Exception as e:  # noqa: BLE001
+        artist_merge.restore_rules(ARTIST_MERGE_FILE, before)
+        return {"error": f"병합 실행에 실패했어요: {e}"}
+    if result is None:
+        artist_merge.restore_rules(ARTIST_MERGE_FILE, before)
+        return {"error": f"병합 실행에 실패했어요: {(run.stderr or run.stdout)[-300:]}"}
+    return {"applied_rows": result.get("changed_rows", 0), "backup": result.get("backup"), "variant": body.variant, "canonical": body.canonical}
+
+
+@app.post("/api/artist-merge/undo")
+def artist_merge_undo(body: ArtistMergeBody):
+    """합치기를 되돌린다: 규칙을 지우고 그때 이름이 바뀐 행을 원래 이름으로 복원한다(백업·변경 기록 포함)."""
+    try:
+        return artist_merge.undo_merge(DATA_DIR, ARTIST_MERGE_FILE, ARTIST_MERGE_FILE.with_name("artist_canonical.txt"), body.variant, body.canonical)
+    except ValueError as e:
+        return {"error": str(e)}
+
 
 @app.get("/api/search")
 def search(q: str = "", limit: int = 6, start: str | None = None, end: str | None = None):

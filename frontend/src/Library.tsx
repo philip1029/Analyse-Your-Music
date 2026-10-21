@@ -9,6 +9,8 @@ import { Num, Skeleton } from "./motion";
 import { ShareButton } from "./Share";
 import { CAT } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
+import { MissingArtists } from "./ArtistFix";
+import { MergeArtists } from "./ArtistMerge";
 
 // Last.fm 라이브러리처럼: 순위 목록(막대) → 아티스트 / 앨범 / 곡 상세 → 곡의 청취 기록
 
@@ -53,6 +55,8 @@ type View =
   | { type: "top" }
   | { type: "list"; category: Category }
   | { type: "covers" }
+  | { type: "artists" }
+  | { type: "merge" }
   | { type: "artist"; name: string }
   | { type: "album"; name: string; artist: string | null }
   | { type: "track"; name: string; artist: string | null; album: string | null };   // album: 이 앨범에서 들은 기록만 (앨범 페이지에서 열 때)
@@ -186,9 +190,23 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
         </button>
         {(["artist", "album", "track"] as Category[]).map(catButton)}
         <button
+          onClick={() => setStack([{ type: "merge" }])}
+          title="같은 사람인데 이름이 다른 아티스트를 하나로 합치기"
+          style={{ padding: "0.35rem 0.9rem", marginLeft: "auto", fontWeight: view.type === "merge" ? 700 : 400, border: view.type === "merge" ? "2px solid #8884d8" : "1px solid #666" }}
+        >
+          아티스트 병합
+        </button>
+        <button
+          onClick={() => setStack([{ type: "artists" }])}
+          title="아티스트가 비어 있는 기록을 직접 채우기"
+          style={{ padding: "0.35rem 0.9rem", fontWeight: view.type === "artists" ? 700 : 400, border: view.type === "artists" ? "2px solid #8884d8" : "1px solid #666" }}
+        >
+          아티스트 누락
+        </button>
+        <button
           onClick={() => setStack([{ type: "covers" }])}
           title="자동으로 못 찾은 커버를 직접 지정"
-          style={{ padding: "0.35rem 0.9rem", marginLeft: "auto", fontWeight: view.type === "covers" ? 700 : 400, border: view.type === "covers" ? "2px solid #8884d8" : "1px solid #666" }}
+          style={{ padding: "0.35rem 0.9rem", fontWeight: view.type === "covers" ? 700 : 400, border: view.type === "covers" ? "2px solid #8884d8" : "1px solid #666" }}
         >
           커버 누락
         </button>
@@ -255,6 +273,8 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
         />
       )}
       {view.type === "covers" && <MissingCovers />}
+      {view.type === "artists" && <MissingArtists />}
+      {view.type === "merge" && <MergeArtists />}
       {view.type === "artist" && <ArtistView key={view.name} name={view.name} query={query} onOpen={openItem} />}
       {view.type === "album" && <AlbumView key={`${view.artist}|${view.name}`} name={view.name} artist={view.artist} query={query} onOpen={openItem} onArtist={(n) => go({ type: "artist", name: n })} />}
       {view.type === "track" && (

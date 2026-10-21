@@ -27,6 +27,7 @@ Apple 기록(A)과 Last.fm 기록(L)이 같은 아티스트를 대소문자·띄
 
 import argparse
 import csv
+import json
 import re
 import shutil
 import sys
@@ -121,7 +122,12 @@ def main():
     ap.add_argument("--keep-separate", default=str(KEEP_SEPARATE_FILE))
     ap.add_argument("--manual-merge", default=str(MANUAL_MERGE_FILE))
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--json", action="store_true", help="마지막 줄에 결과를 JSON 한 줄로도 출력 (앱이 읽는 용도)")
     args = ap.parse_args()
+
+    def result(**kw):
+        if args.json:
+            print(json.dumps(kw, ensure_ascii=False))
 
     csv_path = pp.find_data_csv(args.data_dir)
     if not csv_path:
@@ -149,8 +155,14 @@ def main():
     for canonical, variants in sorted(groups, key=lambda g: -sum(stats[v]["A"] + stats[v]["L"] for v in g[1])):
         for v in variants:
             print(f"    '{v}' -> '{canonical}'  ({stats[v]['A'] + stats[v]['L']}행)")
+    changed_rows = sum(changed.values())
     if not args.apply:
         print("  (dry-run: 파일은 수정하지 않았습니다. 반영하려면 --apply)")
+        result(applied=False, changed_rows=changed_rows, groups=len(groups))
+        return
+    if changed_rows == 0:                     # 바꿀 행이 없으면 백업·기록도 만들지 않는다 (새로고침 때마다 돌려도 조용하다)
+        print("  바꿀 행이 없습니다.")
+        result(applied=True, changed_rows=0, groups=len(groups), backup=None)
         return
 
     new_rows = []
@@ -207,6 +219,8 @@ def main():
     CANONICAL_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"  반영 완료: {len(new_log)}행 (백업: {backup.name}, 기록: {log_path.name}, 설정: config/{CANONICAL_FILE.name}, "
           f"제거 기록 {n_ledger}행 갱신)")
+    result(applied=True, changed_rows=len(new_log), groups=len(groups), backup=backup.name,
+           merges=[{"variant": v, "canonical": c} for c, vs in groups for v in vs])
 
 
 if __name__ == "__main__":

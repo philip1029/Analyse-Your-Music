@@ -73,6 +73,26 @@ Last.fm을 쓰기 전부터의 재생 기록이 Apple Music에 남아있다면, 
 - 인증이 없다. 같은 Wi-Fi의 모든 기기가 "최신 스크롭 불러오기" 같은 기능을 쓸 수 있으니 공용 Wi-Fi에서는 켜지 말 것. 기본(`./start.command`)은 이 맥에서만 접속된다.
 - 폰 Safari에서 "홈 화면에 추가"를 누르면 앱처럼 전체 화면으로 열린다 (PWA 매니페스트 포함).
 
+## Apple Music 데이터 (선택)
+
+Last.fm 스크로블만으로도 앱은 동작한다. Apple Music 개인정보 내보내기를 함께 쓰면 가짜/중복 스크로블 판정, 곡 길이 조회, 빈 아티스트 채우기가 Apple 재생 기록을 근거로 정확해진다 (Last.fm 이 기준이고 Apple 은 보조 근거다).
+
+1. privacy.apple.com → "데이터 사본 요청"에서 **Apple Music 활동**을 요청해 받는다 (며칠 걸릴 수 있다).
+2. 압축을 풀어 아무 곳에나 둔다 (프로젝트 안이면 `data/apple/` 를 권한다. `.xml` 은 gitignore 되지 않으니 올리지 않게 주의).
+3. 폴더 경로를 알려 준다. 둘 중 하나:
+   - **Data 탭 → 설정 → "Apple Music 내보내기 폴더"** 에 경로를 넣고 저장 (맨 위 폴더를 줘도 안에서 찾아 주고, 찾은 파일을 ✅ 로 보여 준다)
+   - `.env` 에 `APPLE_ACTIVITY_DIR=/폴더/경로`
+
+앱이 읽는 파일 (이름이 같아야 한다; 없으면 그 기능만 건너뛴다):
+
+| 파일 | 쓰임 |
+|---|---|
+| `Apple Music Play Activity.csv` | 가짜/중복 스크로블 판정 (`scripts/preprocess.py`) |
+| `Apple Music - Play History Daily Tracks.csv` | 빈 아티스트 채우기 (`scripts/fill_missing_artists.py`) |
+| `전체.xml` (보관함 내보내기, 선택) | 곡 길이 조회 |
+
+경로는 스크립트의 `--apple-dir` 옵션으로 직접 줄 수도 있다.
+
 ## AI 분석용 프롬프트 (Data 탭)
 
 복사해서 ChatGPT/Claude에 붙여넣을 분석용 프롬프트를 만든다. 네 가지 형태가 있다.

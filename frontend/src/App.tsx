@@ -619,9 +619,10 @@ const handleCopyPrompt = () => {
   const [invalidating, setInvalidating] = useState(false);
   const [invalidateMessage, setInvalidateMessage] = useState<string | null>(null);
 
-  const [configStatus, setConfigStatus] = useState<{ has_api_key: boolean; username: string } | null>(null);
+  const [configStatus, setConfigStatus] = useState<{ has_api_key: boolean; username: string; apple_dir?: string; apple_files?: Record<string, boolean> } | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [usernameInput, setUsernameInput] = useState("");
+  const [appleDirInput, setAppleDirInput] = useState("");
   const [savingConfig, setSavingConfig] = useState(false);
   const [configMessage, setConfigMessage] = useState<string | null>(null);
 
@@ -822,6 +823,7 @@ const handleCopyPrompt = () => {
       .then((data) => {
         setConfigStatus(data);
         setUsernameInput(data.username || "");
+        setAppleDirInput(data.apple_dir || "");
       })
       .catch(() => {});
   }, []);
@@ -851,12 +853,17 @@ const handleCopyPrompt = () => {
     fetch(`${BASE_URL}/api/config`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ api_key: apiKeyInput || null, username: usernameInput || null }),
+      body: JSON.stringify({ api_key: apiKeyInput || null, username: usernameInput || null, apple_dir: appleDirInput }),
     })
       .then((res) => res.json())
       .then((data) => {
+        if (data.error) {
+          setConfigMessage(`저장하지 못했어요: ${data.error}`);
+          return;
+        }
         setConfigStatus(data);
         setApiKeyInput("");
+        setAppleDirInput(data.apple_dir || "");
         setConfigMessage("저장했어요.");
       })
       .catch((err) => setConfigMessage(`에러: ${err.message}`))
@@ -905,6 +912,13 @@ const handleCopyPrompt = () => {
             const pendingCount = Object.values(pre.pending ?? {}).reduce((a, b) => a + b, 0);
             if (pendingCount) parts.push(`보류 ${pendingCount}건(지우지 않음)`);
           }
+          // 아티스트 표기 통일 결과
+          const arts = data.artists as { error?: string; changed_rows?: number } | null | undefined;
+          if (arts?.error) {
+            parts.push(`아티스트 통일 실패: ${arts.error}`);
+          } else if (arts?.changed_rows) {
+            parts.push(`아티스트 표기 통일 ${arts.changed_rows}행`);
+          }
           // 곡/앨범 제목 표기 통일(Apple/Last.fm 대소문자 차이) 결과
           const titles = data.titles as { error?: string; tracks?: number; albums?: number } | null | undefined;
           if (titles?.error) {
@@ -930,7 +944,7 @@ const handleCopyPrompt = () => {
             `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
           );
           // 정리된 행이 있거나 전처리·제목 통일이 실패했을 때는 결과를 읽을 시간을 더 준다.
-          const needsTime = Boolean(pre?.error || pre?.removed || titles?.error || titles?.tracks || titles?.albums || durs?.error);
+          const needsTime = Boolean(pre?.error || pre?.removed || arts?.error || arts?.changed_rows || titles?.error || titles?.tracks || titles?.albums || durs?.error);
           setTimeout(() => {
             window.location.reload();
           }, needsTime ? 4000 : 1000);
@@ -1506,6 +1520,28 @@ const handleCopyPrompt = () => {
                 placeholder="last.fm 프로필의 아이디"
                 style={DATA_INPUT}
               />
+
+              <label style={DATA_LABEL}>Apple Music 내보내기 폴더 (선택)</label>
+              <input
+                type="text"
+                value={appleDirInput}
+                onChange={(e) => setAppleDirInput(e.target.value)}
+                placeholder="예: /Users/me/Downloads/Apple Music Activity"
+                style={{ ...DATA_INPUT, marginBottom: "0.4rem" }}
+              />
+              <div style={{ color: "#999", fontSize: "0.8rem", marginBottom: "0.9rem", lineHeight: 1.6 }}>
+                privacy.apple.com 에서 받은 “Apple Music 활동” 폴더 경로예요. 비워 두면 Last.fm 데이터만 쓰고, 지정하면 가짜/중복 스크로블 판정·곡 길이·빈 아티스트 채우기가 Apple 기록을 근거로 써요.
+                압축을 푼 맨 위 폴더를 적어도 안에서 찾아요.
+                {configStatus?.apple_dir ? (
+                  <div>
+                    {([["play_activity", "재생 로그"], ["daily_tracks", "일별 곡 목록"], ["library_xml", "보관함 XML"]] as const).map(([k, name]) => (
+                      <span key={k} style={{ marginRight: "0.8rem" }}>
+                        {configStatus.apple_files?.[k] ? "✅" : "▫️"} {name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
 
               <button onClick={handleSaveConfig} disabled={savingConfig} style={{ padding: "0.5rem 1rem" }}>
                 {savingConfig ? "저장 중..." : "저장"}

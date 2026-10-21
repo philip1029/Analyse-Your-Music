@@ -21,6 +21,7 @@ from app.analysis.taste import (
     compute_tag_evolution_dynamic,
 )
 from app.analysis.diversity import compute_diversity
+from app.version_check import check_for_update
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 
@@ -68,6 +69,11 @@ def get_filtered_df(start: str | None, end: str | None) -> pd.DataFrame | None:
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/update-check")
+def update_check():
+    return check_for_update()
 
 
 @app.get("/api/stats")

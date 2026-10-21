@@ -1,14 +1,15 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type CSSProperties } from "react";
 import { BASE_URL } from "./config";
-import { Library, type LibraryRequest, type LibraryTarget } from "./Library";
+import { Library, type LibraryRequest, type LibraryTarget, type SortMode } from "./Library";
 import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
 import { DiscoveryList } from "./DiscoveryList";
 import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
 import { Skeleton } from "./motion";
-import { RankRow, type RankKind } from "./RankRow";
-import { fmtHM, makeFmt, withWeekday, type Metric } from "./format";
+import { RankRow } from "./RankRow";
+import { SearchBox } from "./Search";
+import { makeFmt, withWeekday, type Metric } from "./format";
 import {
   BarChart,
   Bar,
@@ -92,41 +93,6 @@ type TagDistribution = {
   total_plays: number;
 };
 
-// 월별 재생 분포로 본 "꾸준함". evenness 1 = 모든 달에 고르게, 0 = 한 달에 몰림
-type Consistency = {
-  plays: number;
-  first_month: string;
-  last_month: string;
-  months: number;
-  active_months: number;
-  months_since_last: number;
-  evenness: number | null;
-  bias: number | null;
-  peak_month: string;
-  peak_share: number;
-  monthly: number[];
-};
-
-type TopItem = {
-  name: string;
-  count: number;
-  artist: string | null;
-  album?: string | null;
-  duration?: number | null;
-  seconds?: number;                 // 청취 시간 순일 때: 횟수 x 곡 길이(초)
-  consistency?: Consistency | null;
-};
-
-type ConsistencyItem = Consistency & { key: string; name: string; artist: string | null; album?: string | null; duration?: number | null };
-
-type ConsistencyResult = {
-  category: "artist" | "track" | "album";
-  months: string[];
-  criteria: { min_plays: number; min_months: number };
-  total_candidates: number;
-  results: ConsistencyItem[];
-};
-
 type DateRange = {
   start?: string;
   end?: string;
@@ -152,53 +118,39 @@ type Diversity = {
   album: DiversityMetric;
 };
 
-type TabId = "overview" | "listening" | "music" | "library" | "consistency" | "discovery" | "taste" | "data";
+type TabId = "overview" | "listening" | "music" | "discovery" | "taste" | "data";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "listening", label: "Listening" },
   { id: "music", label: "Music" },
-  { id: "library", label: "Library" },
-  { id: "consistency", label: "Consistency" },
   { id: "discovery", label: "Discovery" },
   { id: "taste", label: "Taste" },
   { id: "data", label: "Data" },
 ];
 
-// 월별 재생 수 막대 미니 그래프 (전체 기간 달 기준이라 "지금은 안 듣는" 항목은 오른쪽이 비어 보인다)
-function Sparkline({ monthly, months, width = 96, height = 20 }: { monthly: number[]; months: string[]; width?: number; height?: number }) {
-  const max = Math.max(...monthly, 1);
-  const bw = width / monthly.length;
-  return (
-    <svg width={width} height={height} style={{ flexShrink: 0 }} role="img" aria-label="월별 재생 수">
-      {monthly.map((c, i) => {
-        const h = c === 0 ? 1 : Math.max(2, (c / max) * height);
-        return (
-          <rect key={i} x={i * bw} y={height - h} width={Math.max(bw - 0.6, 0.5)} height={h} fill={c === 0 ? "#555" : "#8884d8"}>
-            <title>{`${months[i]}: ${c}회`}</title>
-          </rect>
-        );
-      })}
-    </svg>
-  );
+// 선택한 기간이 한 해 / 한 달 / 월~일 한 주 하나와 정확히 같으면 그 종류와 기준값(anchor)을 돌려준다
+function detectPeriod(range: { start?: string; end?: string }): { kind: "year" | "month" | "week"; anchor: string } | null {
+  const { start, end } = range;
+  if (!start || !end) return null;
+  const sm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(start);
+  const em = /^(\d{4})-(\d{2})-(\d{2})$/.exec(end);
+  if (!sm || !em) return null;
+  const [sy, smo, sd] = [Number(sm[1]), Number(sm[2]), Number(sm[3])];
+  const [ey, emo, ed] = [Number(em[1]), Number(em[2]), Number(em[3])];
+  if (sy === ey && smo === 1 && sd === 1 && emo === 12 && ed === 31) return { kind: "year", anchor: String(sy) };
+  const lastDay = new Date(Date.UTC(ey, emo, 0)).getUTCDate();
+  if (sy === ey && smo === emo && sd === 1 && ed === lastDay) return { kind: "month", anchor: `${sy}-${sm[2]}` };
+  const startMs = Date.UTC(sy, smo - 1, sd);
+  if (new Date(startMs).getUTCDay() === 1 && Date.UTC(ey, emo - 1, ed) - startMs === 6 * 86400000) return { kind: "week", anchor: start };
+  return null;
 }
 
-function consistencyText(c: Consistency, plays?: number): string {
-  const head = plays === undefined ? "" : `${plays.toLocaleString()}회 · `;
-  if (c.evenness === null) return `${head}${c.first_month} 시작 · 아직 한 달`;
-  const gone = c.months_since_last >= 1 ? ` · 마지막 청취 ${c.months_since_last}개월 전` : " · 이번 달에도 들음";
-  return `${head}고름 ${Math.round(c.evenness * 100)}% · ${c.active_months}/${c.months}개월 청취${gone}`;
-}
-
-function ConsistencyLine({ c, months, plays }: { c: Consistency | null | undefined; months: string[]; plays?: number }) {
-  if (!c || c.evenness === null) return null;        // 한 달뿐인 기간(월 선택 등)에서는 "꾸준함"이 의미 없어 숨긴다
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, marginTop: 3, textAlign: "left" }}>
-      <Sparkline monthly={c.monthly} months={months} width={Math.min(120, months.length * 4)} height={16} />
-      <span style={{ color: "#888", fontSize: "0.75rem" }}>{consistencyText(c, plays)}</span>
-    </div>
-  );
-}
+// Data 탭: 왼쪽 정렬한 카드(패널) 레이아웃
+const DATA_PANEL: CSSProperties = { border: "1px solid rgba(128,128,128,0.3)", borderRadius: 10, padding: "1.2rem 1.3rem" };
+const DATA_TITLE: CSSProperties = { margin: "0 0 0.8rem", fontSize: "1.2rem" };
+const DATA_LABEL: CSSProperties = { display: "block", fontSize: "0.85rem", color: "#999", margin: "0 0 0.3rem" };
+const DATA_INPUT: CSSProperties = { width: "100%", padding: "0.5rem", marginBottom: "0.9rem", boxSizing: "border-box" };
 
 // 횟수 / 시간 전환 버튼 (시간 = 스크로블 횟수 x 곡 길이, 끝까지 들었다고 가정한 추정치)
 function MetricToggle({ metric, onChange }: { metric: Metric; onChange: (m: Metric) => void }) {
@@ -609,36 +561,13 @@ function App() {
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // 전체 기간(선택한 날짜 범위) / 월간 / 주간 프롬프트
-  const [promptKind, setPromptKind] = useState<"all" | "month" | "week" | "year">("all");
-  const [periodOptions, setPeriodOptions] = useState<
-    { key: string; label: string; scrobbles: number; partial: boolean }[]
-  >([]);
-  const [periodKey, setPeriodKey] = useState("");
-  const [promptNote, setPromptNote] = useState<string | null>(null);
-
-  useEffect(() => {
-    setAiPrompt(null);
-    setPromptNote(null);
-    if (promptKind === "all") return;
-    fetch(`${BASE_URL}/api/ai-prompt/periods?period=${promptKind}`)
-      .then((res) => res.json())
-      .then((data) => {
-        const options = data.periods ?? [];
-        setPeriodOptions(options);
-        // 기본값은 가장 최근의 '끝난' 기간 (진행 중인 기간은 목록에서 직접 고를 수 있음)
-        setPeriodKey((options.find((o: { partial: boolean }) => !o.partial) ?? options[0])?.key ?? "");
-      })
-      .catch((err) => setError(err.message));
-  }, [promptKind]);
-
 const handleGeneratePrompt = () => {
   setGeneratingPrompt(true);
   setPromptNote(null);
   const url =
-    promptKind === "all"
-      ? `${BASE_URL}/api/ai-prompt${buildQuery()}`
-      : `${BASE_URL}/api/ai-prompt/period?period=${promptKind}&anchor=${encodeURIComponent(periodKey)}`;
+    promptPeriod && compareWithPrev
+      ? `${BASE_URL}/api/ai-prompt/period?period=${promptPeriod.kind}&anchor=${encodeURIComponent(promptPeriod.anchor)}`
+      : `${BASE_URL}/api/ai-prompt${buildQuery()}`;
   fetch(url)
     .then((res) => res.json())
     .then((data) => {
@@ -680,7 +609,11 @@ const handleCopyPrompt = () => {
   const [libraryRequest, setLibraryRequest] = useState<LibraryRequest | null>(null);
   const openInLibrary = (target: LibraryTarget) => {
     setLibraryRequest({ id: Date.now(), target });
-    setActiveTab("library");
+    setActiveTab("music");
+  };
+  const openListInLibrary = (category: Cat, sort: SortMode) => {
+    setLibraryRequest({ id: Date.now(), list: { category, sort } });
+    setActiveTab("music");
   };
 
   const [invalidating, setInvalidating] = useState(false);
@@ -699,6 +632,17 @@ const handleCopyPrompt = () => {
 
   const [dateRange, setDateRange] = useState<DateRange>(ALL_TIME);
 
+  // AI 프롬프트는 위쪽 기간 선택을 그대로 쓴다. 한 해/한 달/월~일 한 주를 고른 경우에는 직전 기간과 비교하는 프롬프트도 만들 수 있다.
+  const [compareWithPrev, setCompareWithPrev] = useState(true);
+  const [promptNote, setPromptNote] = useState<string | null>(null);
+  const promptPeriod = detectPeriod(dateRange);
+
+  useEffect(() => {
+    setAiPrompt(null);
+    setPromptNote(null);
+  }, [dateRange, compareWithPrev]);
+
+
   const [stats, setStats] = useState<Stats | null>(null);
   const [hourlyData, setHourlyData] = useState<ChartPoint[]>([]);
   const [weekdayData, setWeekdayData] = useState<ChartPoint[]>([]);
@@ -706,22 +650,6 @@ const handleCopyPrompt = () => {
   const [yearlyData, setYearlyData] = useState<ChartPoint[]>([]);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const [topArtists, setTopArtists] = useState<TopItem[]>([]);
-  const [topTracks, setTopTracks] = useState<TopItem[]>([]);
-  const [topAlbums, setTopAlbums] = useState<TopItem[]>([]);
-  const [topMonths, setTopMonths] = useState<string[]>([]);
-  // Top 10 기준: 재생 많은 순 / 월별로 고르게(꾸준히) 들은 순
-  const [topMode, setTopMode] = useState<"plays" | "even" | "time">("plays");
-  const [evenTop, setEvenTop] = useState<{ artist: TopItem[]; track: TopItem[]; album: TopItem[]; months: string[] } | null>(null);
-  const [timeTop, setTimeTop] = useState<{ artist: TopItem[]; track: TopItem[]; album: TopItem[]; months: string[] } | null>(null);
-
-  const [consCategory, setConsCategory] = useState<"artist" | "track" | "album">("track");
-  const [consSort, setConsSort] = useState<"even" | "biased">("even");
-  const [consMinPlays, setConsMinPlays] = useState(20);
-  const [consMinMonths, setConsMinMonths] = useState(12);
-  const [consData, setConsData] = useState<ConsistencyResult | null>(null);
-  const [consLoading, setConsLoading] = useState(false);
 
   const [tagDistribution, setTagDistribution] = useState<TagDistribution | null>(null);
   const [tagEvolution, setTagEvolution] = useState<TagEvolution | null>(null);
@@ -733,6 +661,7 @@ const handleCopyPrompt = () => {
   const [tagsPage, setTagsPage] = useState(1);
   const [totalTagsPages, setTotalTagsPages] = useState<number | null>(null);
   const [loadingTags, setLoadingTags] = useState(false);
+  const tagsRequest = useRef(0);   // 날짜 범위가 빨리 바뀔 때 늦게 도착한 옛 응답이 덮어쓰지 않도록
 
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
@@ -763,87 +692,23 @@ const handleCopyPrompt = () => {
 
   const loadArtistTagsPage = useCallback(
     (page: number) => {
+      const id = ++tagsRequest.current;
       setLoadingTags(true);
       const qs = buildQuery({ page, page_size: 20 });
       fetch(`${BASE_URL}/api/taste/artists${qs}`)
         .then((res) => res.json())
         .then((data: ArtistTagsPage) => {
+          if (id !== tagsRequest.current) return;
+          if (!Array.isArray(data.artists)) return;   // {"error": ...} 응답이면 기존 목록을 그대로 둔다
           setArtistTags((prev) => (page === 1 ? data.artists : [...prev, ...data.artists]));
           setTagsPage(data.page);
           setTotalTagsPages(data.total_pages);
         })
-        .catch((err) => setError(err.message))
-        .finally(() => setLoadingTags(false));
+        .catch((err) => id === tagsRequest.current && setError(err.message))
+        .finally(() => id === tagsRequest.current && setLoadingTags(false));
     },
     [buildQuery]
   );
-
-  useEffect(() => {
-    if (activeTab !== "music" || topMode !== "time") return;
-    let cancelled = false;
-    const load = (category: "artist" | "track" | "album") =>
-      fetch(`${BASE_URL}/api/music/top${buildQuery({ category, limit: 10, metric: "time" })}`)
-        .then((res) => res.json())
-        .then((d) => ({ months: (d.months ?? []) as string[], items: (d.results ?? []) as TopItem[] }));
-    Promise.all([load("artist"), load("track"), load("album")])
-      .then(([a, t, al]) => {
-        if (!cancelled) setTimeTop({ artist: a.items, track: t.items, album: al.items, months: a.months });
-      })
-      .catch((err) => setError(err.message));
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, topMode, buildQuery]);
-
-  useEffect(() => {
-    if (activeTab !== "music" || topMode !== "even") return;
-    let cancelled = false;
-    const load = (category: "artist" | "track" | "album") =>
-      fetch(
-        `${BASE_URL}/api/music/consistency${buildQuery({ category, sort: "even", min_plays: consMinPlays, min_months: consMinMonths, limit: 10 })}`
-      )
-        .then((res) => res.json())
-        .then((data: ConsistencyResult) => ({
-          months: data.months ?? [],
-          items: (data.results ?? []).map(
-            (r): TopItem => ({ name: r.name, count: r.plays, artist: r.artist, album: r.album ?? null, duration: r.duration ?? null, consistency: r })
-          ),
-        }));
-    Promise.all([load("artist"), load("track"), load("album")])
-      .then(([a, t, al]) => {
-        if (!cancelled) setEvenTop({ artist: a.items, track: t.items, album: al.items, months: a.months });
-      })
-      .catch((err) => setError(err.message));
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, topMode, consMinPlays, consMinMonths, buildQuery]);
-
-  useEffect(() => {
-    if (activeTab !== "consistency") return;
-    let cancelled = false;
-    setConsLoading(true);
-    fetch(
-      `${BASE_URL}/api/music/consistency${buildQuery({
-        category: consCategory,
-        sort: consSort,
-        min_plays: consMinPlays,
-        min_months: consMinMonths,
-        limit: 50,
-      })}`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        if (!cancelled) setConsData(data.error ? null : data);
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => {
-        if (!cancelled) setConsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, consCategory, consSort, consMinPlays, consMinMonths, buildQuery]);
 
   // 히트맵·청취 시계·요일/월/연 그래프: 횟수 또는 시간 (metric 이 바뀌면 이 그래프들만 다시 받는다)
   useEffect(() => {
@@ -912,24 +777,6 @@ const handleCopyPrompt = () => {
       .then((d) => setTimeSummary(d.error ? null : d))
       .catch((err) => setError(err.message));
 
-    fetch(`${BASE_URL}/api/music/top${buildQuery({ category: "artist", limit: 10 })}`)
-      .then((res) => res.json())
-      .then((data) => setTopArtists(data.results))
-      .catch((err) => setError(err.message));
-
-    fetch(`${BASE_URL}/api/music/top${buildQuery({ category: "track", limit: 10 })}`)
-      .then((res) => res.json())
-      .then((data) => setTopTracks(data.results))
-      .catch((err) => setError(err.message));
-
-    fetch(`${BASE_URL}/api/music/top${buildQuery({ category: "album", limit: 10 })}`)
-      .then((res) => res.json())
-      .then((data) => {
-        setTopAlbums(data.results);
-        setTopMonths(data.months ?? []);
-      })
-      .catch((err) => setError(err.message));
-
     fetch(`${BASE_URL}/api/taste/tag-distribution${qs}`)
       .then((res) => res.json())
       .then(setTagDistribution)
@@ -954,10 +801,6 @@ const handleCopyPrompt = () => {
       .then((res) => res.json())
       .then(setDiscoverySummary)
       .catch((err) => setError(err.message));
-
-    setArtistTags([]);
-    setTagsPage(1);
-    setTotalTagsPages(null);
   }, [buildQuery, evolutionMode]);
 
   useEffect(() => {
@@ -983,12 +826,10 @@ const handleCopyPrompt = () => {
       .catch(() => {});
   }, []);
 
+  // 날짜 범위가 바뀔 때마다 1쪽부터 다시 불러온다 (이전 목록은 새 응답이 올 때까지 그대로 둔다)
   useEffect(() => {
-    if (artistTags.length === 0 && !loadingTags) {
-      loadArtistTagsPage(1);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateRange]);
+    loadArtistTagsPage(1);
+  }, [loadArtistTagsPage]);
 
   const handleInvalidateAliasCache = () => {
     setInvalidating(true);
@@ -1168,13 +1009,6 @@ const handleCopyPrompt = () => {
   const fmtVal = makeFmt(metric);
   const axisFmt = (v: number) => (metric === "time" ? `${Math.round(v / 60)}h` : String(v));
 
-  const shownTop =
-    topMode === "even" && evenTop
-      ? evenTop
-      : topMode === "time" && timeTop
-        ? timeTop
-        : { artist: topArtists, track: topTracks, album: topAlbums, months: topMonths };
-
   return (
     <ShareProvider>
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
@@ -1217,22 +1051,13 @@ const handleCopyPrompt = () => {
         </div>
       )}
 
-      {/* 상단 컨트롤: 새로고침 · 태그 캐시 (기간 선택은 탭 아래 PeriodBar 로 통합) */}
-      <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center" }}>
+      {/* 상단 컨트롤: 새로고침 (기간 선택은 탭 아래 PeriodBar 로 통합) */}
+      <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "0.5rem 1rem" }}>
           {refreshing ? "업데이트 중..." : "🔄 최신 스크롭 불러오기"}
         </button>
-
-        <button onClick={handleFetchTagCache} disabled={cachingTags} style={{ padding: "0.5rem 1rem" }}>
-          {cachingTags
-            ? "태그 조회 중..."
-            : `🏷️ 아티스트 태그 캐시 20명 더 불러오기${
-                tagDistribution ? ` (${tagDistribution.covered_artists} / ${tagDistribution.total_artists})` : ""
-              }`}
-        </button>
+        <SearchBox query={buildQuery} rangeLabel={dateRange.label} onPick={openInLibrary} />
       </div>
-
-      {cacheMessage && <p>{cacheMessage}</p>}
 
       {/* 탭 바 */}
       <div className="tab-bar" style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid #ddd", marginBottom: "1.5rem", overflowX: "auto" }}>
@@ -1390,158 +1215,8 @@ const handleCopyPrompt = () => {
       )}
 
       {/* Music 탭 */}
-      {activeTab === "music" && (
-        <>
-          <h2>Top 10</h2>
-          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center", marginBottom: "0.5rem" }}>
-            {([
-              ["plays", "많이 들은 순"],
-              ["time", "오래 들은 순"],
-              ["even", "꾸준히 들은 순"],
-            ] as const).map(([mode, label]) => (
-              <button
-                key={mode}
-                onClick={() => setTopMode(mode)}
-                style={{ padding: "0.4rem 0.9rem", fontWeight: topMode === mode ? "bold" : "normal", border: topMode === mode ? "2px solid #8884d8" : "1px solid #666" }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {topMode === "time" && (
-            <p style={{ color: "#888", fontSize: "0.85rem", textAlign: "center", marginTop: 0 }}>
-              청취 시간(스크로블 횟수 × 곡 길이, 끝까지 들었다고 가정한 추정치) 순입니다. 긴 곡·긴 앨범이 위로 올라옵니다.
-              {!timeTop && " 불러오는 중..."}
-            </p>
-          )}
-          {topMode === "even" && (
-            <p style={{ color: "#888", fontSize: "0.85rem", textAlign: "center", marginTop: 0 }}>
-              {consMinPlays}회 이상, {consMinMonths}개월 이상에 걸쳐 들은 항목 중 월별 재생이 가장 고른 순입니다. 기준은 Consistency 탭에서 바꿀 수 있어요.
-              {!evenTop && " 불러오는 중..."}
-            </p>
-          )}
-          <div style={{ maxWidth: 980, margin: "0 auto", textAlign: "left" }}>
-            {([
-              ["artist", "Artists", shownTop.artist],
-              ["track", "Tracks", shownTop.track],
-              ["album", "Albums", shownTop.album],
-            ] as [RankKind, string, TopItem[]][]).map(([kind, title, items]) => (
-              <section key={kind} style={{ marginTop: "1.5rem" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", marginBottom: "0.4rem" }}>
-                  <h3 style={{ fontWeight: 400, margin: "0.6rem 0", borderLeft: `4px solid ${CAT[kind].main}`, paddingLeft: "0.6rem" }}>{title}</h3>
-                  <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: kind, metric: topMode === "time" ? "time" : "plays" }} />
-                </div>
-                {items.map((item, i) => {
-                  const c = item.consistency;
-                  const byEven = topMode === "even" && c?.evenness != null;
-                  const byTime = topMode === "time" && item.seconds !== undefined;
-                  return (
-                    <RankRow
-                      key={`${item.artist}|${item.name}`}
-                      rank={i + 1}
-                      item={item}
-                      max={items[0]?.count ?? 1}
-                      kind={kind}
-                      extra={<ConsistencyLine c={c} months={shownTop.months} plays={byEven || byTime ? item.count : undefined} />}
-                      onOpen={() => openInLibrary(kind === "artist" ? { kind: "artist", name: item.name } : { kind, name: item.name, artist: item.artist })}
-                      barFraction={byEven ? (c?.evenness ?? 0) : byTime ? (item.seconds ?? 0) / Math.max(1, items[0]?.seconds ?? 1) : undefined}
-                      barText={byEven ? `${Math.round((c?.evenness ?? 0) * 100)}%` : byTime ? fmtHM(item.seconds ?? 0) : undefined}
-                    />
-                  );
-                })}
-              </section>
-            ))}
-          </div>
-        </>
-      )}
-
-      {/* Library 탭: Last.fm 라이브러리 같은 순위 목록과 상세 */}
-      {activeTab === "library" && <Library query={buildQuery} request={libraryRequest} />}
-
-      {/* Consistency 탭: 월별 재생이 고르게 퍼진 순 / 한 시기에 몰린 순 */}
-      {activeTab === "consistency" && (
-        <>
-          <h2 style={{ textAlign: "left", borderLeft: `4px solid ${CAT[consCategory].main}`, paddingLeft: "0.6rem" }}>청취 날짜 편향도</h2>
-          <p style={{ color: "#888", marginTop: 0, fontSize: "0.9rem", textAlign: "left" }}>
-            항목을 처음 들은 달부터 지금까지를 월 단위로 나눠, 재생이 얼마나 고르게 퍼져 있는지 봅니다. 100%에 가까울수록 꾸준히,
-            0%에 가까울수록 한 시기에 몰아 들은 항목입니다. 지금은 안 듣는 곡은 마지막 달들이 비어 점수가 내려갑니다.
-          </p>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", margin: "0.4rem 0 0.8rem" }}>
-            {(["track", "artist", "album"] as const).map((c) => (
-              <button
-                key={c}
-                onClick={() => setConsCategory(c)}
-                style={{
-                  padding: "0.35rem 0.9rem",
-                  fontWeight: consCategory === c ? 700 : 400,
-                  borderStyle: "solid",
-                  borderWidth: consCategory === c ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
-                  borderColor: consCategory === c ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
-                  color: consCategory === c ? CAT[c].main : undefined,
-                }}
-              >
-                {c === "track" ? "트랙" : c === "artist" ? "아티스트" : "앨범"}
-              </button>
-            ))}
-            <span style={{ width: "0.6rem" }} />
-            {([["even", "가장 고른 순"], ["biased", "가장 몰린 순"]] as const).map(([v, label]) => (
-              <button
-                key={v}
-                onClick={() => setConsSort(v)}
-                style={{ padding: "0.35rem 0.9rem", fontWeight: consSort === v ? "bold" : "normal", border: consSort === v ? "2px solid #8884d8" : "1px solid #666" }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", marginBottom: "1rem", color: "#999", fontSize: "0.9rem" }}>
-            <label>
-              최소 재생{" "}
-              <input type="number" min={5} value={consMinPlays} style={{ width: 64 }} onChange={(e) => setConsMinPlays(Math.max(5, Number(e.target.value) || 5))} />
-              회
-            </label>
-            <label>
-              최소 기간{" "}
-              <input type="number" min={2} value={consMinMonths} style={{ width: 56 }} onChange={(e) => setConsMinMonths(Math.max(2, Number(e.target.value) || 2))} />
-              개월
-            </label>
-          </div>
-          {consLoading && <Skeleton lines={5} height={44} />}
-          {consData && (
-            <>
-              <p style={{ color: "#888", fontSize: "0.85rem", textAlign: "left" }}>
-                조건에 맞는 항목 {consData.total_candidates}개 중 상위 {consData.results.length}개 ({consData.months[0]} ~ {consData.months[consData.months.length - 1]})
-              </p>
-              <div style={{ textAlign: "left" }}>
-                {consData.results.map((item, i) => (
-                  <RankRow
-                    key={item.key}
-                    rank={i + 1}
-                    kind={consData.category}
-                    item={{ name: item.name, artist: item.artist, album: item.album, count: item.plays }}
-                    max={1}
-                    barFraction={item.evenness ?? 0}
-                    barText={item.evenness === null ? "-" : `${Math.round(item.evenness * 100)}%`}
-                    onOpen={() =>
-                      openInLibrary(consData.category === "artist" ? { kind: "artist", name: item.name } : { kind: consData.category, name: item.name, artist: item.artist })
-                    }
-                    extra={
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, marginTop: 3 }}>
-                        <Sparkline monthly={item.monthly} months={consData.months} width={Math.min(120, consData.months.length * 4)} height={16} />
-                        <span style={{ color: "#888", fontSize: "0.75rem" }}>
-                          {item.plays.toLocaleString()}회 · {item.first_month} 시작 · {item.active_months}/{item.months}개월 청취 · 최다 {item.peak_month} ({Math.round(item.peak_share * 100)}%)
-                          {item.months_since_last >= 1 ? ` · 마지막 청취 ${item.months_since_last}개월 전` : ""}
-                        </span>
-                      </div>
-                    }
-                  />
-                ))}
-              </div>
-              {consData.results.length === 0 && <p style={{ color: "#888" }}>조건에 맞는 항목이 없습니다. 최소 재생·기간을 낮춰 보세요.</p>}
-            </>
-          )}
-        </>
-      )}
+      {/* Music 탭: Top 10 · 순위 목록 · 상세 (정렬: 많이/오래/꾸준히/몰아/처음 들은 순) */}
+      {activeTab === "music" && <Library query={buildQuery} request={libraryRequest} />}
 
       {/* Discovery 탭 */}
       {activeTab === "discovery" && discoverySummary && (
@@ -1594,7 +1269,12 @@ const handleCopyPrompt = () => {
           <h3 style={{ textAlign: "left", borderLeft: `4px solid ${CAT[discoveryCat].main}`, paddingLeft: "0.6rem" }}>
             최근 발견한 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"}
           </h3>
-          <DiscoveryList cat={discoveryCat} query={buildQuery} onOpen={openInLibrary} />
+          <DiscoveryList cat={discoveryCat} query={buildQuery} onOpen={openInLibrary} limit={5} />
+          <div style={{ textAlign: "right", marginTop: "0.5rem" }}>
+            <button onClick={() => openListInLibrary(discoveryCat, "first")} style={{ background: "none", border: "none", color: "#6a9bd8", cursor: "pointer", font: "inherit" }}>
+              전체 보기 (Music 탭 · 처음 들은 순) →
+            </button>
+          </div>
         </>
       )}
 
@@ -1761,151 +1441,136 @@ const handleCopyPrompt = () => {
 
       {/* Data 탭 */}
       {activeTab === "data" && (
-        <>
-          <h2>AI 분석용 프롬프트 생성</h2>
-          <p style={{ color: "#888", fontSize: "0.9rem" }}>
-            {promptKind === "all"
-              ? `지금 선택된 기간(${dateRange.label}) 기준으로 청취 데이터를 정리한 프롬프트를 만들어요.`
-              : `${
-                  { month: "고른 달을 직전 달과", week: "고른 주를 직전 주와", year: "고른 해를 전년과" }[promptKind]
-                } 비교한 프롬프트를 만들어요. (위쪽 날짜 범위와 상관없이 전체 기록에서 계산됩니다)`}{" "}
-            복사해서 ChatGPT나 Claude 같은 AI에게 붙여넣고 취향 분석을 물어보면 됩니다.
-          </p>
-          <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
-            {([["all", "전체 기간"], ["year", "연간"], ["month", "월간"], ["week", "주간"]] as const).map(([kind, label]) => (
-              <label key={kind} style={{ cursor: "pointer" }}>
-                <input
-                  type="radio"
-                  name="promptKind"
-                  checked={promptKind === kind}
-                  onChange={() => setPromptKind(kind)}
-                />{" "}
-                {label}
+        <div style={{ maxWidth: 760, margin: "0 auto", textAlign: "left", display: "grid", gap: "1.5rem" }}>
+          {/* AI 분석용 프롬프트 */}
+          <section style={DATA_PANEL}>
+            <h2 style={DATA_TITLE}>AI 분석용 프롬프트 생성</h2>
+            <p style={{ color: "#999", fontSize: "0.9rem", margin: "0 0 1rem" }}>
+              위쪽에서 고른 기간(<strong style={{ color: "CanvasText" }}>{dateRange.label}</strong>)의 청취 데이터를 정리한 프롬프트를 만들어요. 복사해서 ChatGPT나 Claude 같은 AI에게 붙여넣고 취향 분석을 물어보면 됩니다.
+            </p>
+            {promptPeriod && (
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", margin: "0 0 1rem", cursor: "pointer", fontSize: "0.9rem" }}>
+                <input type="checkbox" checked={compareWithPrev} onChange={(e) => setCompareWithPrev(e.target.checked)} />
+                {{ year: "전년과 비교", month: "직전 달과 비교", week: "직전 주와 비교" }[promptPeriod.kind]}하는 프롬프트로 만들기
               </label>
-            ))}
-            {promptKind !== "all" && (
-              <select value={periodKey} onChange={(e) => setPeriodKey(e.target.value)} style={{ padding: "0.3rem" }}>
-                {periodOptions.map((o) => (
-                  <option key={o.key} value={o.key}>
-                    {o.label} ({o.scrobbles.toLocaleString()}회{o.partial ? " · 일부 기간" : ""})
-                  </option>
-                ))}
-              </select>
             )}
-          </div>
-          <button
-            onClick={handleGeneratePrompt}
-            disabled={generatingPrompt || (promptKind !== "all" && !periodKey)}
-            style={{ padding: "0.5rem 1rem", marginBottom: "1rem" }}
-          >
-            {generatingPrompt ? "생성 중..." : "📋 프롬프트 생성"}
-          </button>
-          {promptNote && <p style={{ color: "#888", fontSize: "0.85rem", margin: "0 0 0.75rem" }}>{promptNote}</p>}
-
-          {aiPrompt && (
-            <div>
-              <textarea
-                readOnly
-                value={aiPrompt}
-                style={{
-                  width: "100%",
-                  height: 400,
-                  padding: "0.75rem",
-                  fontFamily: "monospace",
-                  fontSize: "0.8rem",
-                  whiteSpace: "pre-wrap",
-                  boxSizing: "border-box",
-                }}
-              />
-              <button onClick={handleCopyPrompt} style={{ padding: "0.5rem 1rem", marginTop: "0.5rem" }}>
-                {copied ? "복사됨!" : "📋 클립보드에 복사"}
-              </button>
-            </div>
-          )}
-
-          <h2>⚙️ 설정</h2>
-
-          <div style={{ marginBottom: "1.5rem", maxWidth: 420 }}>
-            <label style={{ display: "block", fontSize: "0.85rem", color: "#888", marginBottom: "0.3rem" }}>
-              Last.fm API Key {configStatus?.has_api_key && "(설정됨 — 바꿀 때만 입력)"}
-            </label>
-            <input
-              type="password"
-              value={apiKeyInput}
-              onChange={(e) => setApiKeyInput(e.target.value)}
-              placeholder={configStatus?.has_api_key ? "••••••••" : "last.fm/api/account/create 에서 발급"}
-              style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem", boxSizing: "border-box" }}
-            />
-
-            <label style={{ display: "block", fontSize: "0.85rem", color: "#888", marginBottom: "0.3rem" }}>
-              Last.fm 유저네임
-            </label>
-            <input
-              type="text"
-              value={usernameInput}
-              onChange={(e) => setUsernameInput(e.target.value)}
-              placeholder="last.fm 프로필의 아이디"
-              style={{ width: "100%", padding: "0.5rem", marginBottom: "0.75rem", boxSizing: "border-box" }}
-            />
-
-            <button onClick={handleSaveConfig} disabled={savingConfig} style={{ padding: "0.5rem 1rem" }}>
-              {savingConfig ? "저장 중..." : "저장"}
-            </button>
-            {configMessage && <p style={{ color: "#666", marginTop: "0.5rem" }}>{configMessage}</p>}
-          </div>
-
-          <div style={{ marginBottom: "1.5rem" }}>
-            <button onClick={handleInstallDeps} disabled={installingDeps} style={{ padding: "0.5rem 1rem" }}>
-              {installingDeps ? "설치 중..." : "📦 의존 모듈 설치"}
-            </button>
-            {installMessage && <p style={{ color: "#666", marginTop: "0.5rem" }}>{installMessage}</p>}
-          </div>
-
-          <h2>데이터 상태</h2>
-
-          <div style={{ marginBottom: "1.5rem" }}>
             <button
-              onClick={handleInvalidateAliasCache}
-              disabled={invalidating}
+              onClick={handleGeneratePrompt}
+              disabled={generatingPrompt}
               style={{ padding: "0.5rem 1rem" }}
             >
+              {generatingPrompt ? "생성 중..." : "📋 프롬프트 생성"}
+            </button>
+            {promptNote && <p style={{ color: "#999", fontSize: "0.85rem", margin: "0.75rem 0 0" }}>{promptNote}</p>}
+
+            {aiPrompt && (
+              <div style={{ marginTop: "1rem" }}>
+                <textarea
+                  readOnly
+                  value={aiPrompt}
+                  style={{
+                    width: "100%",
+                    height: 400,
+                    padding: "0.75rem",
+                    fontFamily: "monospace",
+                    fontSize: "0.8rem",
+                    whiteSpace: "pre-wrap",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button onClick={handleCopyPrompt} style={{ padding: "0.5rem 1rem", marginTop: "0.5rem" }}>
+                  {copied ? "복사됨!" : "📋 클립보드에 복사"}
+                </button>
+              </div>
+            )}
+          </section>
+
+          {/* 설정 */}
+          <section style={DATA_PANEL}>
+            <h2 style={DATA_TITLE}>⚙️ 설정</h2>
+            <div style={{ maxWidth: 440 }}>
+              <label style={DATA_LABEL}>Last.fm API Key {configStatus?.has_api_key && "(설정됨 — 바꿀 때만 입력)"}</label>
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder={configStatus?.has_api_key ? "••••••••" : "last.fm/api/account/create 에서 발급"}
+                style={DATA_INPUT}
+              />
+
+              <label style={DATA_LABEL}>Last.fm 유저네임</label>
+              <input
+                type="text"
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                placeholder="last.fm 프로필의 아이디"
+                style={DATA_INPUT}
+              />
+
+              <button onClick={handleSaveConfig} disabled={savingConfig} style={{ padding: "0.5rem 1rem" }}>
+                {savingConfig ? "저장 중..." : "저장"}
+              </button>
+              {configMessage && <p style={{ color: "#999", margin: "0.6rem 0 0" }}>{configMessage}</p>}
+            </div>
+
+            <div style={{ marginTop: "1.2rem", paddingTop: "1.2rem", borderTop: "1px solid rgba(128,128,128,0.25)" }}>
+              <button onClick={handleInstallDeps} disabled={installingDeps} style={{ padding: "0.5rem 1rem" }}>
+                {installingDeps ? "설치 중..." : "📦 의존 모듈 설치"}
+              </button>
+              {installMessage && <p style={{ color: "#999", margin: "0.6rem 0 0" }}>{installMessage}</p>}
+            </div>
+          </section>
+
+          {/* 데이터 상태 */}
+          <section style={DATA_PANEL}>
+            <h2 style={DATA_TITLE}>데이터 상태</h2>
+
+            {validation && (
+              <>
+                <p style={{ margin: "0 0 0.8rem" }}>총 데이터 행 수: <strong>{validation.total_rows.toLocaleString()}</strong></p>
+
+                {validation.valid && validation.warnings.length > 0 && (
+                  <div
+                    style={{
+                      background: "#fff3cd",
+                      color: "#222",
+                      border: "1px solid #e0a800",
+                      borderRadius: 8,
+                      padding: "0.9rem 1rem",
+                      marginBottom: "1rem",
+                    }}
+                  >
+                    <strong>⚠️ 데이터 검증 경고 ({validation.warnings.length}건)</strong>
+                    <ul style={{ margin: "0.5rem 0 0", paddingLeft: "1.2rem" }}>
+                      {validation.warnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {validation.valid && validation.warnings.length === 0 && (
+                  <p style={{ color: "#2a2", margin: "0 0 1rem" }}>✅ 검증 통과, 문제 없음</p>
+                )}
+              </>
+            )}
+
+            <div style={{ marginBottom: "1rem" }}>
+              <div style={{ color: "#999", fontSize: "0.85rem", marginBottom: "0.4rem" }}>
+                아티스트 태그(장르) 캐시{tagDistribution ? `: ${tagDistribution.covered_artists.toLocaleString()} / ${tagDistribution.total_artists.toLocaleString()}명` : ""} — 새로고침 때 새 아티스트는 자동으로 채워집니다.
+              </div>
+              <button onClick={handleFetchTagCache} disabled={cachingTags} style={{ padding: "0.5rem 1rem" }}>
+                {cachingTags ? "태그 조회 중..." : "🏷️ 아티스트 태그 20명 더 불러오기"}
+              </button>
+              {cacheMessage && <p style={{ margin: "0.6rem 0 0", color: "#999" }}>{cacheMessage}</p>}
+            </div>
+
+            <button onClick={handleInvalidateAliasCache} disabled={invalidating} style={{ padding: "0.5rem 1rem" }}>
               {invalidating ? "처리 중..." : "🔄 매핑된 아티스트 캐시 초기화"}
             </button>
-            {invalidateMessage && (
-              <p style={{ marginTop: "0.5rem", color: "#666" }}>{invalidateMessage}</p>
-            )}
-          </div>
-
-          {validation && (
-            <>
-              <p>총 데이터 행 수: {validation.total_rows}</p>
-
-              {validation.valid && validation.warnings.length > 0 && (
-                <div
-                  style={{
-                    background: "#fff3cd",
-                    color: "#222",
-                    border: "1px solid #e0a800",
-                    borderRadius: 8,
-                    padding: "1rem",
-                    marginBottom: "1rem",
-                  }}
-                >
-                  <strong>⚠️ 데이터 검증 경고 ({validation.warnings.length}건)</strong>
-                  <ul>
-                    {validation.warnings.map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {validation.valid && validation.warnings.length === 0 && (
-                <p style={{ color: "#2a2" }}>✅ 검증 통과, 문제 없음</p>
-              )}
-            </>
-          )}
-        </>
+            {invalidateMessage && <p style={{ margin: "0.6rem 0 0", color: "#999" }}>{invalidateMessage}</p>}
+          </section>
+        </div>
       )}
       </div>
 

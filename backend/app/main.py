@@ -24,6 +24,7 @@ from app.analysis.validation import validate_csv
 from app.analysis.filters import filter_by_date_range
 from app.analysis.keys import unique_count, resolve_all
 from app.analysis.library import ranked_page, artist_detail, album_detail, track_detail, durations
+from app.analysis.search import search_library
 from app.analysis.listening_time import attach_durations, time_summary, weights
 from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
@@ -540,6 +541,15 @@ def debug_empty_album():
 def cache_invalidate_aliases():
     deleted = invalidate_aliased_cache()
     return {"deleted_files": deleted, "count": len(deleted)}
+
+@app.get("/api/search")
+def search(q: str = "", limit: int = 6, start: str | None = None, end: str | None = None):
+    """아티스트·앨범·곡 이름 검색 (선택한 기간 안의 기록 기준)."""
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return search_library(df, q, min(max(1, limit), 20))
+
 
 @app.get("/api/library/list")
 def library_list(category: str = "artist", offset: int = 0, limit: int = 50, metric: str = "plays", start: str | None = None, end: str | None = None):

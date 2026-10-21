@@ -13,15 +13,16 @@ type Item = { name: string; artist: string | null; album?: string | null; first_
 
 const LINE = "1px solid rgba(128,128,128,0.25)";
 
-export function DiscoveryList({ cat, query, onOpen }: { cat: Cat; query: (extra?: Record<string, string | number>) => string; onOpen: (t: LibraryTarget) => void }) {
+// limit 을 주면 그 개수만 보여 주는 요약(Top 10 화면용), 안 주면 30개씩 "더 보기"로 늘어난다
+export function DiscoveryList({ cat, query, onOpen, limit }: { cat: Cat; query: (extra?: Record<string, string | number>) => string; onOpen: (t: LibraryTarget) => void; limit?: number }) {
+  const [count, setCount] = useState(limit ?? 30);
   const [items, setItems] = useState<Item[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setItems(null);
     setError(null);
-    fetch(`${BASE_URL}/api/discovery/timeline${query({ category: cat, limit: 30 })}`)
+    fetch(`${BASE_URL}/api/discovery/timeline${query({ category: cat, limit: count })}`)
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return;
@@ -32,7 +33,7 @@ export function DiscoveryList({ cat, query, onOpen }: { cat: Cat; query: (extra?
     return () => {
       cancelled = true;
     };
-  }, [cat, query]);
+  }, [cat, query, count]);
 
   if (error) return <p style={{ color: "#d66" }}>{error}</p>;
   if (!items) return <Skeleton lines={6} height={44} />;
@@ -73,6 +74,13 @@ export function DiscoveryList({ cat, query, onOpen }: { cat: Cat; query: (extra?
           </div>
         );
       })}
+      {limit === undefined && items.length >= count && (
+        <div style={{ textAlign: "center", margin: "1rem 0" }}>
+          <button onClick={() => setCount((c) => c + 30)} style={{ padding: "0.5rem 1.2rem" }}>
+            더 보기 ({items.length}개 표시 중)
+          </button>
+        </div>
+      )}
     </div>
   );
 }

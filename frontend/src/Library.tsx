@@ -3,6 +3,8 @@ import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { LINE, RankRow, fmtDuration } from "./RankRow";
 import { agoText, fmtHM } from "./format";
+import { ConsistencyLine, Sparkline, type ConsistencyResult, type TopItem } from "./Consistency";
+import { DiscoveryList } from "./DiscoveryList";
 import { Num, Skeleton } from "./motion";
 import { ShareButton } from "./Share";
 import { CAT } from "./theme";
@@ -37,7 +39,18 @@ type TrackDetail = {
   plays: Play[];
 };
 
+export type SortMode = "plays" | "time" | "even" | "biased" | "first";
+
+const SORTS: { id: SortMode; label: string; hint?: string }[] = [
+  { id: "plays", label: "많이 들은 순" },
+  { id: "time", label: "오래 들은 순", hint: "청취 시간 = 스크로블 횟수 × 곡 길이 (끝까지 들었다고 가정한 추정치). 긴 곡·긴 앨범이 위로 올라옵니다." },
+  { id: "even", label: "꾸준히 들은 순", hint: "처음 들은 달부터 지금까지 월별 재생이 가장 고르게 퍼진 순입니다. 지금은 안 듣는 항목은 마지막 달들이 비어 점수가 내려갑니다." },
+  { id: "biased", label: "몰아 들은 순", hint: "한 시기에 몰아서 들은 항목이 위로 옵니다 (월별 재생이 가장 한쪽에 치우친 순)." },
+  { id: "first", label: "처음 들은 순", hint: "처음 들은 날짜가 최근인 순 (새로 발견한 항목)." },
+];
+
 type View =
+  | { type: "top" }
   | { type: "list"; category: Category }
   | { type: "covers" }
   | { type: "artist"; name: string }
@@ -96,21 +109,30 @@ export type LibraryTarget =
   | { kind: "artist"; name: string }
   | { kind: "album"; name: string; artist: string | null }
   | { kind: "track"; name: string; artist: string | null; album?: string | null };
-export type LibraryRequest = { id: number; target: LibraryTarget };
+// target: 상세 페이지로 바로 이동 / list: 정렬을 정해 목록으로 이동
+export type LibraryRequest = { id: number; target?: LibraryTarget; list?: { category: Category; sort: SortMode } };
 
 export function Library({ query, request }: { query: (extra?: Record<string, string | number>) => string; request?: LibraryRequest | null }) {
-  const [stack, setStack] = useState<View[]>([{ type: "list", category: "artist" }]);
+  const [stack, setStack] = useState<View[]>([{ type: "top" }]);
+  const [sort, setSort] = useState<SortMode>("plays");          // 목록·Top 10 정렬 기준
+  const [minPlays, setMinPlays] = useState(20);                   // 꾸준함/몰림 순위의 후보 기준
+  const [minMonths, setMinMonths] = useState(12);
 
   // 요청이 오면 "목록 → 상세"로 쌓아서, 뒤로 가기를 누르면 그 종류의 목록으로 돌아간다
   useEffect(() => {
     if (!request) return;
+    if (request.list) {
+      setSort(request.list.sort);
+      setStack([{ type: "list", category: request.list.category }]);
+      return;
+    }
     const t = request.target;
+    if (!t) return;
     const detail: View =
       t.kind === "artist" ? { type: "artist", name: t.name } : t.kind === "album" ? { type: "album", name: t.name, artist: t.artist } : { type: "track", name: t.name, artist: t.artist, album: t.album ?? null };
     setStack([{ type: "list", category: t.kind }, detail]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request?.id]);
-  const [metric, setMetric] = useState<"plays" | "time">("plays");      // 목록 순위 기준: 재생 횟수 / 청취 시간
   const view = stack[stack.length - 1];
 
   const go = (v: View) => setStack((s) => [...s, v]);
@@ -120,6 +142,33 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
     else if (kind === "album") go({ type: "album", name: it.name, artist: it.artist });
     else go({ type: "track", name: it.name, artist: it.artist, album: scopeToAlbum ? (it.album ?? null) : null });
   };
+  const openTarget = (t: LibraryTarget) =>
+    t.kind === "artist" ? go({ type: "artist", name: t.name }) : t.kind === "album" ? go({ type: "album", name: t.name, artist: t.artist }) : go({ type: "track", name: t.name, artist: t.artist, album: t.album ?? null });
+
+  const atRoot = stack.length === 1;
+  const catButton = (c: Category) => {
+    const active = atRoot && view.type === "list" && view.category === c;
+    return (
+      <button
+        key={c}
+        onClick={() => setStack([{ type: "list", category: c }])}
+        style={{
+          padding: "0.35rem 0.9rem",
+          fontWeight: active ? 700 : 400,
+          // 카테고리 색 밑줄(비활성이어도 어떤 색인지 보인다). border 단축 속성과 borderBottom 을 섞으면 React 가 경고해서 풀어서 쓴다.
+          borderStyle: "solid",
+          borderWidth: active ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
+          borderColor: active ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
+          color: active ? CAT[c].main : undefined,
+        }}
+      >
+        {c === "artist" ? "Artists" : c === "album" ? "Albums" : "Tracks"}
+      </button>
+    );
+  };
+
+  const showSortBar = view.type === "top" || view.type === "list";
+  const sortInfo = SORTS.find((x) => x.id === sort);
 
   return (
     <div style={{ textAlign: "left", maxWidth: 980, margin: "0 auto" }}>
@@ -129,26 +178,13 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
             ← 뒤로
           </button>
         )}
-        {(["artist", "album", "track"] as Category[]).map((c) => {
-          const active = stack[0].type === "list" && (stack[0] as { category: Category }).category === c && stack.length === 1;
-          return (
-            <button
-              key={c}
-              onClick={() => setStack([{ type: "list", category: c }])}
-              style={{
-                padding: "0.35rem 0.9rem",
-                fontWeight: active ? 700 : 400,
-                // 카테고리 색 밑줄(비활성이어도 어떤 색인지 보인다). border 단축 속성과 borderBottom 을 섞으면 React 가 경고해서 풀어서 쓴다.
-                borderStyle: "solid",
-                borderWidth: active ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
-                borderColor: active ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
-                color: active ? CAT[c].main : undefined,
-              }}
-            >
-              {c === "artist" ? "Artists" : c === "album" ? "Albums" : "Tracks"}
-            </button>
-          );
-        })}
+        <button
+          onClick={() => setStack([{ type: "top" }])}
+          style={{ padding: "0.35rem 0.9rem", fontWeight: atRoot && view.type === "top" ? 700 : 400, border: atRoot && view.type === "top" ? "2px solid #8884d8" : "1px solid #666" }}
+        >
+          Top 10
+        </button>
+        {(["artist", "album", "track"] as Category[]).map(catButton)}
         <button
           onClick={() => setStack([{ type: "covers" }])}
           title="자동으로 못 찾은 커버를 직접 지정"
@@ -158,28 +194,65 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
         </button>
       </div>
 
-      {view.type === "list" && (
-        <>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginBottom: "0.8rem", flexWrap: "wrap" }}>
-            {([
-              ["plays", "재생 횟수 순"],
-              ["time", "청취 시간 순"],
-            ] as const).map(([m, text]) => (
+      {showSortBar && (
+        <div style={{ marginBottom: "0.8rem" }}>
+          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+            {SORTS.map((o) => (
               <button
-                key={m}
-                onClick={() => setMetric(m)}
-                style={{ padding: "0.25rem 0.7rem", fontSize: "0.85rem", fontWeight: metric === m ? 700 : 400, border: metric === m ? "2px solid #8884d8" : "1px solid #666" }}
+                key={o.id}
+                onClick={() => setSort(o.id)}
+                style={{ padding: "0.25rem 0.7rem", fontSize: "0.85rem", fontWeight: sort === o.id ? 700 : 400, border: sort === o.id ? "2px solid #8884d8" : "1px solid #666" }}
               >
-                {text}
+                {o.label}
               </button>
             ))}
-            {metric === "time" && <span style={{ color: "#999", fontSize: "0.8rem" }}>스크로블 횟수 × 곡 길이 (끝까지 들었다고 가정한 추정치)</span>}
-            <span style={{ marginLeft: "auto" }}>
-              <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: view.category, metric }} label="🖼 Top 이미지" />
-            </span>
+            {view.type === "list" && (sort === "plays" || sort === "time") && (
+              <span style={{ marginLeft: "auto" }}>
+                <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: view.category, metric: sort }} label="🖼 Top 이미지" />
+              </span>
+            )}
           </div>
-          <ListView key={`${view.category}|${metric}`} category={view.category} metric={metric} query={query} onOpen={(it) => openItem(view.category, it)} />
-        </>
+          {sortInfo?.hint && <p style={{ color: "#999", fontSize: "0.8rem", margin: "0.5rem 0 0" }}>{sortInfo.hint}</p>}
+          {(sort === "even" || sort === "biased") && (
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", margin: "0.6rem 0 0", color: "#999", fontSize: "0.85rem" }}>
+              <label>
+                최소 재생{" "}
+                <input type="number" min={5} value={minPlays} style={{ width: 64 }} onChange={(e) => setMinPlays(Math.max(5, Number(e.target.value) || 5))} />
+                회
+              </label>
+              <label>
+                최소 기간{" "}
+                <input type="number" min={2} value={minMonths} style={{ width: 56 }} onChange={(e) => setMinMonths(Math.max(2, Number(e.target.value) || 2))} />
+                개월
+              </label>
+            </div>
+          )}
+        </div>
+      )}
+
+      {view.type === "top" && (
+        <TopView
+          key={`${sort}|${minPlays}|${minMonths}`}
+          sort={sort}
+          minPlays={minPlays}
+          minMonths={minMonths}
+          query={query}
+          onOpen={openItem}
+          onTarget={openTarget}
+          onAll={(c) => setStack([{ type: "list", category: c }])}
+        />
+      )}
+      {view.type === "list" && (
+        <ListView
+          key={`${view.category}|${sort}|${minPlays}|${minMonths}`}
+          category={view.category}
+          sort={sort}
+          minPlays={minPlays}
+          minMonths={minMonths}
+          query={query}
+          onOpen={(it) => openItem(view.category, it)}
+          onTarget={openTarget}
+        />
       )}
       {view.type === "covers" && <MissingCovers />}
       {view.type === "artist" && <ArtistView key={view.name} name={view.name} query={query} onOpen={openItem} />}
@@ -222,63 +295,213 @@ function useFetched<T>(path: string, deps: unknown[]) {
   return { data, error };
 }
 
-function ListView({ category, metric, query, onOpen }: { category: Category; metric: "plays" | "time"; query: (e?: Record<string, string | number>) => string; onOpen: (i: Item) => void }) {
-  const [items, setItems] = useState<Item[]>([]);
+type RankedRow = { key: string; item: Item; barFraction?: number; barText?: string; extra?: ReactNode };
+
+// 정렬 기준에 따라 알맞은 API 에서 순위 줄을 가져온다. paged: 전체 목록(50개씩 더 보기) / 아니면 Top 10 요약(꾸준함 그래프 포함)
+function useRanked(category: Category, sort: SortMode, minPlays: number, minMonths: number, query: (e?: Record<string, string | number>) => string, paged: boolean) {
+  const [rows, setRows] = useState<RankedRow[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const size = paged ? PAGE : PREVIEW;
 
   const load = useCallback(
     (offset: number) => {
       setLoading(true);
-      fetch(`${BASE_URL}/api/library/list${query({ category, offset, limit: PAGE, metric })}`)
-        .then((res) => res.json())
-        .then((d: ListResult & { error?: string }) => {
-          if (d.error) return setError(d.error);
-          setTotal(d.total);
-          setItems((prev) => (offset === 0 ? d.items : [...prev, ...d.items]));
-        })
-        .catch((e) => setError(e.message))
-        .finally(() => setLoading(false));
+      setError(null);
+      const done = () => setLoading(false);
+      const fail = (e: Error) => setError(e.message);
+      const merge = (next: RankedRow[]) => setRows((prev) => (offset === 0 ? next : [...prev, ...next]));
+
+      if (sort === "even" || sort === "biased") {
+        fetch(`${BASE_URL}/api/music/consistency${query({ category, sort, min_plays: minPlays, min_months: minMonths, limit: offset + size })}`)
+          .then((r) => r.json())
+          .then((d: ConsistencyResult & { error?: string }) => {
+            if (d.error) return setError(d.error);
+            setTotal(d.total_candidates);
+            setNote(d.months.length ? `${d.months[0]} ~ ${d.months[d.months.length - 1]} 기준` : null);
+            merge(
+              d.results.slice(offset).map((r) => ({
+                key: r.key,
+                item: { name: r.name, artist: r.artist, album: r.album, count: r.plays },
+                barFraction: r.evenness ?? 0,
+                barText: r.evenness === null ? "-" : `${Math.round(r.evenness * 100)}%`,
+                extra: (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, marginTop: 3 }}>
+                    <Sparkline monthly={r.monthly} months={d.months} width={Math.min(120, d.months.length * 4)} height={16} />
+                    <span style={{ color: "#888", fontSize: "0.75rem" }}>
+                      {r.plays.toLocaleString()}회 · {r.first_month} 시작 · {r.active_months}/{r.months}개월 청취 · 최다 {r.peak_month} ({Math.round(r.peak_share * 100)}%)
+                      {r.months_since_last >= 1 ? ` · 마지막 청취 ${r.months_since_last}개월 전` : ""}
+                    </span>
+                  </div>
+                ),
+              }))
+            );
+          })
+          .catch(fail)
+          .finally(done);
+      } else if (paged) {
+        fetch(`${BASE_URL}/api/library/list${query({ category, offset, limit: size, metric: sort })}`)
+          .then((r) => r.json())
+          .then((d: ListResult & { error?: string }) => {
+            if (d.error) return setError(d.error);
+            setTotal(d.total);
+            const byTime = sort === "time";
+            const max = (byTime ? d.items[0]?.seconds : d.items[0]?.count) ?? 1;
+            merge(
+              d.items.map((it) => ({
+                key: `${it.artist}|${it.name}`,
+                item: it,
+                barFraction: byTime ? (it.seconds ?? 0) / Math.max(1, max) : undefined,
+                barText: byTime ? `${fmtHM(it.seconds ?? 0)} · ${it.count.toLocaleString()}회` : undefined,
+              }))
+            );
+          })
+          .catch(fail)
+          .finally(done);
+      } else {
+        // Top 10 요약: 항목마다 월별 재생 그래프(꾸준함)를 함께 보여 준다
+        fetch(`${BASE_URL}/api/music/top${query({ category, limit: size, metric: sort })}`)
+          .then((r) => r.json())
+          .then((d: { error?: string; months: string[]; results: TopItem[] }) => {
+            if (d.error) return setError(d.error);
+            const byTime = sort === "time";
+            const max = (byTime ? d.results[0]?.seconds : d.results[0]?.count) ?? 1;
+            setTotal(d.results.length);
+            merge(
+              d.results.map((it) => ({
+                key: `${it.artist}|${it.name}`,
+                item: it,
+                barFraction: byTime ? (it.seconds ?? 0) / Math.max(1, max) : undefined,
+                barText: byTime ? fmtHM(it.seconds ?? 0) : undefined,
+                extra: <ConsistencyLine c={it.consistency} months={d.months} plays={byTime ? it.count : undefined} />,
+              }))
+            );
+          })
+          .catch(fail)
+          .finally(done);
+      }
     },
-    [category, metric, query]
+    [category, sort, minPlays, minMonths, query, paged, size]
   );
 
   useEffect(() => {
-    setItems([]);
+    setRows([]);
     setTotal(null);
     load(0);
   }, [load]);
 
-  const noun = category === "artist" ? "Artists" : category === "album" ? "Albums" : "Tracks";
-  const byTime = metric === "time";
-  const max = (byTime ? items[0]?.seconds : items[0]?.count) ?? 1;
+  return { rows, total, loading, error, note, load };
+}
+
+function RankRows({ rows, category, onOpen }: { rows: RankedRow[]; category: Category; onOpen: (i: Item) => void }) {
+  const max = rows[0]?.item.count ?? 1;
   return (
     <>
-      <div style={label}>{noun} scrobbled</div>
-      <div style={{ ...bigNumber, marginBottom: "1rem" }}>{total === null ? "…" : <Num value={total} />}</div>
-      {error && <p style={{ color: "#d66" }}>{error}</p>}
-      {items.map((it, i) => (
-        <RankRow
-          key={`${it.artist}|${it.name}`}
-          rank={i + 1}
-          item={it}
-          max={max}
-          kind={category}
-          onOpen={() => onOpen(it)}
-          barFraction={byTime ? (it.seconds ?? 0) / Math.max(1, max) : undefined}
-          barText={byTime ? `${fmtHM(it.seconds ?? 0)} · ${it.count.toLocaleString()}회` : undefined}
-        />
+      {rows.map((r, i) => (
+        <RankRow key={r.key} rank={i + 1} item={r.item} max={max} kind={category} onOpen={() => onOpen(r.item)} barFraction={r.barFraction} barText={r.barText} extra={r.extra} />
       ))}
-      {total !== null && items.length < total && (
+    </>
+  );
+}
+
+function ListView({
+  category,
+  sort,
+  minPlays,
+  minMonths,
+  query,
+  onOpen,
+  onTarget,
+}: {
+  category: Category;
+  sort: SortMode;
+  minPlays: number;
+  minMonths: number;
+  query: (e?: Record<string, string | number>) => string;
+  onOpen: (i: Item) => void;
+  onTarget: (t: LibraryTarget) => void;
+}) {
+  const noun = category === "artist" ? "Artists" : category === "album" ? "Albums" : "Tracks";
+  if (sort === "first") return <DiscoveryList cat={category} query={query} onOpen={onTarget} />;
+  return <ListBody category={category} sort={sort} minPlays={minPlays} minMonths={minMonths} query={query} onOpen={onOpen} noun={noun} />;
+}
+
+function ListBody({ category, sort, minPlays, minMonths, query, onOpen, noun }: { category: Category; sort: SortMode; minPlays: number; minMonths: number; query: (e?: Record<string, string | number>) => string; onOpen: (i: Item) => void; noun: string }) {
+  const { rows, total, loading, error, note, load } = useRanked(category, sort, minPlays, minMonths, query, true);
+  const filtered = sort === "even" || sort === "biased";
+  return (
+    <>
+      <div style={label}>{filtered ? `${noun} · 조건에 맞는 항목` : `${noun} scrobbled`}</div>
+      <div style={{ ...bigNumber, marginBottom: filtered && note ? "0.2rem" : "1rem" }}>{total === null ? "…" : <Num value={total} />}</div>
+      {filtered && note && <div style={{ color: "#999", fontSize: "0.8rem", marginBottom: "1rem" }}>{note}</div>}
+      {error && <p style={{ color: "#d66" }}>{error}</p>}
+      {total === null && !error && <Skeleton lines={5} height={44} />}
+      <RankRows rows={rows} category={category} onOpen={onOpen} />
+      {total !== null && rows.length === 0 && filtered && <p style={{ color: "#888" }}>조건에 맞는 항목이 없습니다. 최소 재생·기간을 낮춰 보세요.</p>}
+      {total !== null && rows.length < total && (
         <div style={{ textAlign: "center", margin: "1rem 0" }}>
-          <button disabled={loading} onClick={() => load(items.length)} style={{ padding: "0.5rem 1.2rem" }}>
-            {loading ? "불러오는 중..." : `더 보기 (${items.length}/${total})`}
+          <button disabled={loading} onClick={() => load(rows.length)} style={{ padding: "0.5rem 1.2rem" }}>
+            {loading ? "불러오는 중..." : `더 보기 (${rows.length}/${total})`}
           </button>
         </div>
       )}
     </>
   );
+}
+
+// 기본 화면: 아티스트·곡·앨범 Top 10 (정렬 기준은 위 버튼). 각 구역의 "전체 보기"로 전체 목록으로 간다.
+function TopView({
+  sort,
+  minPlays,
+  minMonths,
+  query,
+  onOpen,
+  onTarget,
+  onAll,
+}: {
+  sort: SortMode;
+  minPlays: number;
+  minMonths: number;
+  query: (e?: Record<string, string | number>) => string;
+  onOpen: (k: Category, i: Item) => void;
+  onTarget: (t: LibraryTarget) => void;
+  onAll: (c: Category) => void;
+}) {
+  return (
+    <>
+      {([
+        ["artist", "Artists"],
+        ["track", "Tracks"],
+        ["album", "Albums"],
+      ] as [Category, string][]).map(([kind, title]) => (
+        <section key={kind} style={{ marginTop: "1.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", marginBottom: "0.4rem" }}>
+            <h3 style={{ fontWeight: 400, margin: "0.6rem 0", borderLeft: `4px solid ${CAT[kind].main}`, paddingLeft: "0.6rem" }}>{title}</h3>
+            <span style={{ display: "flex", alignItems: "center", gap: "0.8rem" }}>
+              {(sort === "plays" || sort === "time") && <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: kind, metric: sort }} />}
+              <LinkButton onClick={() => onAll(kind)}>전체 보기 →</LinkButton>
+            </span>
+          </div>
+          <TopSection category={kind} sort={sort} minPlays={minPlays} minMonths={minMonths} query={query} onOpen={(it) => onOpen(kind, it)} onTarget={onTarget} />
+        </section>
+      ))}
+    </>
+  );
+}
+
+function TopSection({ category, sort, minPlays, minMonths, query, onOpen, onTarget }: { category: Category; sort: SortMode; minPlays: number; minMonths: number; query: (e?: Record<string, string | number>) => string; onOpen: (i: Item) => void; onTarget: (t: LibraryTarget) => void }) {
+  if (sort === "first") return <DiscoveryList cat={category} query={query} onOpen={onTarget} limit={10} />;
+  return <TopRows category={category} sort={sort} minPlays={minPlays} minMonths={minMonths} query={query} onOpen={onOpen} />;
+}
+
+function TopRows({ category, sort, minPlays, minMonths, query, onOpen }: { category: Category; sort: SortMode; minPlays: number; minMonths: number; query: (e?: Record<string, string | number>) => string; onOpen: (i: Item) => void }) {
+  const { rows, total, error } = useRanked(category, sort, minPlays, minMonths, query, false);
+  if (error) return <p style={{ color: "#d66" }}>{error}</p>;
+  if (total === null) return <Skeleton lines={4} height={44} />;
+  if (rows.length === 0) return <p style={{ color: "#888" }}>조건에 맞는 항목이 없습니다. 최소 재생·기간을 낮춰 보세요.</p>;
+  return <RankRows rows={rows} category={category} onOpen={onOpen} />;
 }
 
 function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<string, string | number>) => string; onOpen: (k: Category, i: Item) => void }) {

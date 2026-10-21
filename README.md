@@ -88,8 +88,11 @@ Last.fm 스크로블만으로도 앱은 동작한다. Apple Music 개인정보 �
 | 파일 | 쓰임 |
 |---|---|
 | `Apple Music Play Activity.csv` | 가짜/중복 스크로블 판정 (`scripts/preprocess.py`) |
+| `Apple Music Library Tracks.json.zip` (보관함 곡 목록, 같은 내보내기에 들어 있음) | 정확한 곡 길이 (청취 시간 계산에 쓰는 곡 길이의 1순위) |
 | `Apple Music - Play History Daily Tracks.csv` | 빈 아티스트 채우기 (`scripts/fill_missing_artists.py`) |
-| `전체.xml` (보관함 내보내기, 선택) | 곡 길이 조회 |
+| `전체.xml` · `플레이리스트.xml` (음악 앱의 파일 → 라이브러리 → 라이브러리 내보내기로 직접 만든 보관함, 선택) | 곡 길이·아티스트 보강. 같은 폴더에 이 이름으로 넣는다 |
+
+폴더를 저장하면 Data 탭의 **“Apple 파일 안내”** 가 파일마다 용도·받는 곳·있는지를 보여 준다. 보관함 곡 목록이나 `전체.xml` 처럼 다른 곳에 받아 둔 파일은 그 경로(파일이나 폴더)를 적고 “이 폴더로 가져오기”를 누르면 Apple 폴더로 복사해 준다 (원본은 그대로, 이미 있으면 덮어쓰기 확인).
 
 경로는 스크립트의 `--apple-dir` 옵션으로 직접 줄 수도 있다.
 

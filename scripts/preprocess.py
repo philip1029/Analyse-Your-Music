@@ -66,7 +66,6 @@ import csv
 import io
 import json
 import os
-import shutil
 import sys
 import time
 import urllib.parse
@@ -77,6 +76,7 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
+from csv_backup import make_backup  # noqa: E402
 import detect_fake_scrobbles as det  # noqa: E402
 
 ROOT = SCRIPT_DIR.parent
@@ -86,7 +86,6 @@ FROZEN_INIT_UTS = 1789516799      # 2026-09-15 23:59:59 UTC. 이전은 로그 �
 CONTEXT_SECONDS = 7200            # run/충돌 판정에 쓰는 앞쪽 문맥 범위
 CLASH_TOLERANCE = 3               # 다른 곡이 같은 초로 보는 허용 오차(초)
 DURATION_TOLERANCE = det.DURATION_TOLERANCE_SECONDS
-KEEP_BACKUPS = 5
 LEDGER_FIELDS = ["uts", "utc_time", "artist", "album", "track", "source",
                  "rule", "confidence", "detail", "removed_at"]
 
@@ -456,9 +455,7 @@ def main():
             print("  변경 없음: 파일을 수정하지 않았습니다.")
         return
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = csv_path.with_name(csv_path.name + f".bak_preprocess_{stamp}")
-    shutil.copy2(csv_path, backup)
+    backup = make_backup(csv_path, "preprocess")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     new_ledger = list(ledger)
     for idx, v in sorted(removals.items(), key=lambda kv: -int(rows[kv[0]]["uts"])):
@@ -484,9 +481,6 @@ def main():
     if "d" in durations_holder:
         durations_holder["d"].save()
 
-    old = sorted(csv_path.parent.glob(csv_path.name + ".bak_preprocess_*"))
-    for p in old[:-KEEP_BACKUPS]:
-        p.unlink()
     if not args.json:
         print(f"  반영 완료: {len(kept)}행 (백업: {backup.name}, 제거 기록: {ledger_path.name})")
 

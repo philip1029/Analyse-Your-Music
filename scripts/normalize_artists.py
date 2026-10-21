@@ -29,7 +29,6 @@ import argparse
 import csv
 import json
 import re
-import shutil
 import sys
 import unicodedata
 from collections import Counter, defaultdict
@@ -39,6 +38,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 import preprocess as pp  # noqa: E402  (read_csv / write_csv_atomic 재사용)
+from csv_backup import make_backup  # noqa: E402
 
 ROOT = SCRIPT_DIR.parent
 KEEP_SEPARATE_FILE = ROOT / "config" / "artist_keep_separate.txt"
@@ -177,9 +177,7 @@ def main():
         keys.add(k)
         new_rows.append(nr)
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = csv_path.with_name(csv_path.name + f".bak_artistnorm_{stamp}")
-    shutil.copy2(csv_path, backup)
+    backup = make_backup(csv_path, "artistnorm")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_path = Path(args.data_dir) / "artist_normalize_log.csv"
     old_log = []

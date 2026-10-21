@@ -20,6 +20,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 import preprocess as pp  # noqa: E402  (read_csv / write_csv_atomic 재사용)
+from csv_backup import make_backup  # noqa: E402
 from fill_missing_artists import LOG_FIELDS  # noqa: E402
 
 
@@ -109,10 +110,7 @@ def apply_assignments(data_dir: Path, assignments: list[dict]) -> dict:
     if not log_rows:
         return {"applied_rows": 0, "backup": None, "details": []}
 
-    import shutil
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = csv_path.with_name(csv_path.name + f".bak_artistfill_{stamp}")
-    shutil.copy2(csv_path, backup)
+    backup = make_backup(csv_path, "artistfill")
     log_path = Path(data_dir) / "artist_fill_log.csv"
     old_log = []
     if log_path.exists():

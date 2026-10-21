@@ -7,7 +7,6 @@
 """
 
 import csv
-import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +17,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 import preprocess as pp  # noqa: E402  (read_csv / write_csv_atomic 재사용)
+from csv_backup import make_backup  # noqa: E402
 from normalize_artists import LOG_FIELDS  # noqa: E402
 
 
@@ -147,9 +147,7 @@ def undo_merge(data_dir: Path, rules_path: Path, canonical_path: Path, variant: 
     if not log_rows:
         return {"restored_rows": 0, "backup": None, "variant": variant, "canonical": canonical}
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = csv_path.with_name(csv_path.name + f".bak_artistundo_{stamp}")
-    shutil.copy2(csv_path, backup)
+    backup = make_backup(csv_path, "artistundo")
     pp.write_csv_atomic(csv_path, header, rows)
     pp.write_csv_atomic(Path(data_dir) / "artist_normalize_log.csv", LOG_FIELDS, _read_log(data_dir) + log_rows)
     return {"restored_rows": len(log_rows), "backup": backup.name, "variant": variant, "canonical": canonical}

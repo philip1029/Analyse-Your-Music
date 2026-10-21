@@ -7,7 +7,6 @@
 """
 
 import csv
-import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +17,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 import preprocess as pp  # noqa: E402
+from csv_backup import make_backup  # noqa: E402
 from normalize_titles import LOG_FIELDS, load_manual_title_merges  # noqa: E402
 
 KINDS = {"track": "곡", "album": "앨범"}
@@ -158,9 +158,7 @@ def undo_merge(data_dir: Path, rules_path: Path, kind: str, artist: str, variant
     if not new_log:
         return base
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = csv_path.with_name(csv_path.name + f".bak_titleundo_{stamp}")
-    shutil.copy2(csv_path, backup)
+    backup = make_backup(csv_path, "titleundo")
     pp.write_csv_atomic(csv_path, header, rows)
     pp.write_csv_atomic(Path(data_dir) / "title_normalize_log.csv", LOG_FIELDS, log + new_log)
     return {**base, "restored_rows": len(new_log), "backup": backup.name}

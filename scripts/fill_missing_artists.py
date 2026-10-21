@@ -26,7 +26,6 @@ fill_missing_artists.py
 
 import argparse
 import csv
-import shutil
 import sys
 from collections import defaultdict
 from datetime import datetime
@@ -35,6 +34,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 import preprocess as pp  # noqa: E402  (read_csv / write_csv_atomic 재사용)
+from csv_backup import make_backup  # noqa: E402
 
 LOG_FIELDS = ["uts", "utc_time", "track", "old_artist", "new_artist", "old_album", "new_album",
               "rule", "filled_at"]
@@ -138,9 +138,7 @@ def main():
         print("  변경할 행이 없습니다.")
         return
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = csv_path.with_name(csv_path.name + f".bak_artistfill_{stamp}")
-    shutil.copy2(csv_path, backup)
+    backup = make_backup(csv_path, "artistfill")
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_path = Path(args.data_dir) / "artist_fill_log.csv"
     old_log = []

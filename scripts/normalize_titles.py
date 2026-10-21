@@ -31,7 +31,6 @@ Apple 기록(A)과 Last.fm 기록(L)이 같은 곡/앨범 제목을 대소문자
 import argparse
 import csv
 import json
-import shutil
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -40,6 +39,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 import preprocess as pp  # noqa: E402  (read_csv / write_csv_atomic 재사용)
+from csv_backup import make_backup  # noqa: E402
 from normalize_artists import simple_key  # noqa: E402
 
 FIELDS = ("track", "album")
@@ -166,9 +166,7 @@ def main():
         keys.add(k)
         new_rows.append(nr)
 
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = csv_path.with_name(csv_path.name + f".bak_titlenorm_{stamp}")
-    shutil.copy2(csv_path, backup)
+    backup = make_backup(csv_path, "titlenorm")
     log_path = Path(args.data_dir) / "title_normalize_log.csv"
     old_log = []
     if log_path.exists():

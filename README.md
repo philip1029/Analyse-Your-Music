@@ -2,6 +2,17 @@
 
 Last.fm 스크로블 기록을 분석하는 개인용 대시보드입니다. 청취 패턴, 장르 변화, 언어/지역권 트렌드, 급상승/급하락 아티스트 같은 걸 보여줍니다.
 
+<p align="center">
+  <a href="https://github.com/philip1029/Analyse-Your-Music/archive/refs/heads/main.zip">
+    <img alt="ZIP 다운로드" src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8E%20%EB%8B%A4%EC%9A%B4%EB%A1%9C%EB%93%9C-ZIP-2563eb?style=for-the-badge">
+  </a>
+</p>
+
+<p align="center">
+  <sub>버튼을 누르면 최신 버전이 ZIP으로 받아집니다. 압축을 풀고 아래 <b>준비물</b>부터 따라 하세요.<br>
+  특정 버전이 필요하면 <a href="https://github.com/philip1029/Analyse-Your-Music/tags">Tags</a>에서 고를 수 있어요 (현재 v0.1.0-beta).</sub>
+</p>
+
 ## 준비물
 
 - macOS

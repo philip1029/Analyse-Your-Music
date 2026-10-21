@@ -1477,11 +1477,11 @@ const handleCopyPrompt = () => {
                   아티스트 {tagDistribution.covered_artists} / {tagDistribution.total_artists}명)
                 </span>
               </h2>
-              <ResponsiveContainer width="100%" height={400}>
+              <ResponsiveContainer width="100%" height={Math.max(300, tagDistribution.tags.length * 34 + 40)}>
                 <BarChart data={tagDistribution.tags} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis type="number" />
-                  <YAxis dataKey="tag" type="category" width={100} />
+                  <YAxis dataKey="tag" type="category" width={150} interval={0} tick={{ fontSize: 13 }} />
                   <Tooltip />
                   <Bar dataKey="score" fill="#ff7f50" />
                 </BarChart>

@@ -10,7 +10,7 @@ Last.fm 스크로블 기록을 분석하는 개인용 대시보드입니다. 청
 
 <p align="center">
   <sub>버튼을 누르면 최신 버전이 ZIP으로 받아집니다. 압축을 풀고 아래 <b>준비물</b>부터 따라 하세요.<br>
-  특정 버전이 필요하면 <a href="https://github.com/philip1029/Analyse-Your-Music/tags">Tags</a>에서 고를 수 있습니다 (현재 v0.1.0-beta).</sub>
+  특정 버전이 필요하면 <a href="https://github.com/philip1029/Analyse-Your-Music/tags">Tags</a>에서 고를 수 있습니다 (현재 v0.2.0-beta).</sub>
 </p>
 
 ## 준비물

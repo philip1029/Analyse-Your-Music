@@ -22,6 +22,14 @@ export function withWeekday(date: string): string {
   return `${date} (${WEEKDAYS_KO[day]})`;
 }
 
+// "2026-10-03" -> "2026년 10월 3일 토요일". 날짜 형식이 아니면 그대로 돌려준다.
+export function longDate(date: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return date;
+  const day = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay();
+  return `${Number(m[1])}년 ${Number(m[2])}월 ${Number(m[3])}일 ${WEEKDAYS_KO[day]}요일`;
+}
+
 // "2026-03-05" -> "7개월 전" / "1년 2개월 전" / "12일 전" / "오늘". today 는 테스트용 (기본: 지금, 한국 시간 날짜 기준).
 export function agoText(date: string, today?: string): string {
   const parse = (d: string) => {

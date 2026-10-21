@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { BASE_URL } from "./config";
-import { fmtHM, withWeekday } from "./format";
+import { fmtHM, longDate } from "./format";
 import { Num, Skeleton, stagger } from "./motion";
 import { CAT, CARD_INK, DOG_EAR, MUTED, SCROBBLE_COLOR } from "./theme";
 
@@ -97,7 +97,7 @@ export function OverviewCards({
           {isAllTime ? (
             <p className="aym-rise" style={sentenceBase}>
               {firstScrobble ? <><span style={strong}>{plain(firstScrobble)}</span>부터 </> : null}
-              <span style={strong}><Num value={totalScrobbles} duration={1100} /></span>번 들었고, 음악을{" "}
+              <span style={strong}><Num value={totalScrobbles} duration={1100} /></span>번 들었고,<br />음악을{" "}
               <span style={strong}><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} /></span> 들었어요.
             </p>
           ) : (
@@ -110,12 +110,13 @@ export function OverviewCards({
           )}
           <p className="aym-rise" style={{ ...sentenceBase, fontSize: "1.05rem", fontWeight: 500, margin: 0, animationDelay: "140ms" }}>
             하루 평균 <span style={strong}><Num value={timeSummary.avg_seconds_per_day} format={fmtHM} /></span>
-            {timeSummary.busiest_day && (
+            {timeSummary.busiest_day ? (
               <>
-                , 가장 많이 들은 날은 <span style={strong}>{withWeekday(timeSummary.busiest_day.date)}</span>({fmtHM(timeSummary.busiest_day.seconds)})
+                이고, 가장 많이 들은 날은 <span style={strong}>{longDate(timeSummary.busiest_day.date)}</span>로{" "}
+                <span style={strong}>{fmtHM(timeSummary.busiest_day.seconds)}</span>
               </>
-            )}
-            였어요.
+            ) : null}
+            이었어요.
             <span style={{ fontSize: "0.8rem", marginLeft: "0.5rem" }}>(스크로블 × 곡 길이 추정 · 길이를 아는 재생 {Math.round(timeSummary.coverage * 100)}% 기준)</span>
           </p>
         </div>

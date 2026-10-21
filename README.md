@@ -6,7 +6,7 @@ Last.fm API를 이용한 개인 프로그램
 같은 Wi-Fi에 연결된 폰 브라우저에서 앱을 열 수 있다.
 
 ```bash
-./start.command --lan      # 서버를 0.0.0.0 으로 열고 폰 접속 주소(http://<맥 IP>:5173)를 출력한다
+./start_phone.command    # (= ./start.command --lan) 서버를 0.0.0.0 으로 열고 폰 접속 주소(http://<맥 IP>:5173)를 출력한다
 ```
 
 - 프런트엔드는 접속한 주소의 호스트에 맞춰 `:8000` 백엔드를 자동으로 찾는다. 다른 주소를 쓰려면 `frontend/.env` 에 `VITE_API_URL` 을 지정한다.

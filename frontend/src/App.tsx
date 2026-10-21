@@ -1,6 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { BASE_URL } from "./config";
-import { Cover } from "./Cover";
 import { Library, type LibraryRequest, type LibraryTarget } from "./Library";
 import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
@@ -237,7 +236,7 @@ function YearHeatmap({
   const maxCount = Math.max(...data.map((d) => d.count), 1);
 
   const getColor = (count: number) => {
-    if (count === 0) return "#ebedf0";
+    if (count === 0) return "rgba(128,128,128,0.22)";
     const ratio = count / maxCount;
     if (ratio < 0.25) return "#9be9a8";
     if (ratio < 0.5) return "#40c463";
@@ -285,7 +284,7 @@ function YearHeatmap({
     <div style={{ marginBottom: "1.5rem" }}>
       <h4 style={{ margin: "0 0 0.3rem 0" }}>{year}</h4>
       <div style={{ overflowX: "auto" }}>
-        <svg width={width} height={height}>
+        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", minWidth: 640, height: "auto", display: "block" }}>
           {monthLabels.map((m, i) => (
             <text key={i} x={m.x} y={10} fontSize={10} fill="#888">
               {m.label}
@@ -383,7 +382,7 @@ function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n
   };
 
   return (
-    <div ref={containerRef} style={{ position: "relative", display: "flex", alignItems: "center", gap: "2.5rem", flexWrap: "wrap" }}>
+    <div ref={containerRef} style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", gap: "2.5rem", flexWrap: "wrap" }}>
       <svg width={size} height={size}>
         {data.map((d, h) => {
           const startAngle = h * 15 + gapDeg / 2;
@@ -1205,7 +1204,7 @@ const handleCopyPrompt = () => {
         <>
         <MetricToggle metric={metric} onChange={setMetric} />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-          <h2 style={{ margin: "0.8rem 0" }}>청취 시계</h2>
+          <h2>청취 시계</h2>
           <ShareButton spec={{ kind: "period", card: "clock", period: "all", metric }} />
         </div>
         <ListeningClock data={hourlyData} format={fmtVal} noun={metric === "time" ? "청취 시간" : "스크로블"} />
@@ -1329,27 +1328,40 @@ const handleCopyPrompt = () => {
       {/* Consistency 탭: 월별 재생이 고르게 퍼진 순 / 한 시기에 몰린 순 */}
       {activeTab === "consistency" && (
         <>
-          <h2>청취 날짜 편향도</h2>
-          <p style={{ color: "#888", marginTop: 0, fontSize: "0.9rem" }}>
+          <h2 style={{ textAlign: "left", borderLeft: `4px solid ${CAT[consCategory].main}`, paddingLeft: "0.6rem" }}>청취 날짜 편향도</h2>
+          <p style={{ color: "#888", marginTop: 0, fontSize: "0.9rem", textAlign: "left" }}>
             항목을 처음 들은 달부터 지금까지를 월 단위로 나눠, 재생이 얼마나 고르게 퍼져 있는지 봅니다. 100%에 가까울수록 꾸준히,
             0%에 가까울수록 한 시기에 몰아 들은 항목입니다. 지금은 안 듣는 곡은 마지막 달들이 비어 점수가 내려갑니다.
           </p>
-          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", marginBottom: "1rem" }}>
-            <label>
-              대상{" "}
-              <select value={consCategory} onChange={(e) => setConsCategory(e.target.value as "artist" | "track" | "album")}>
-                <option value="track">트랙</option>
-                <option value="artist">아티스트</option>
-                <option value="album">앨범</option>
-              </select>
-            </label>
-            <label>
-              정렬{" "}
-              <select value={consSort} onChange={(e) => setConsSort(e.target.value as "even" | "biased")}>
-                <option value="even">가장 고른 순</option>
-                <option value="biased">가장 몰린 순</option>
-              </select>
-            </label>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", margin: "0.4rem 0 0.8rem" }}>
+            {(["track", "artist", "album"] as const).map((c) => (
+              <button
+                key={c}
+                onClick={() => setConsCategory(c)}
+                style={{
+                  padding: "0.35rem 0.9rem",
+                  fontWeight: consCategory === c ? 700 : 400,
+                  borderStyle: "solid",
+                  borderWidth: consCategory === c ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
+                  borderColor: consCategory === c ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
+                  color: consCategory === c ? CAT[c].main : undefined,
+                }}
+              >
+                {c === "track" ? "트랙" : c === "artist" ? "아티스트" : "앨범"}
+              </button>
+            ))}
+            <span style={{ width: "0.6rem" }} />
+            {([["even", "가장 고른 순"], ["biased", "가장 몰린 순"]] as const).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setConsSort(v)}
+                style={{ padding: "0.35rem 0.9rem", fontWeight: consSort === v ? "bold" : "normal", border: consSort === v ? "2px solid #8884d8" : "1px solid #666" }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", marginBottom: "1rem", color: "#999", fontSize: "0.9rem" }}>
             <label>
               최소 재생{" "}
               <input type="number" min={5} value={consMinPlays} style={{ width: 64 }} onChange={(e) => setConsMinPlays(Math.max(5, Number(e.target.value) || 5))} />
@@ -1361,38 +1373,37 @@ const handleCopyPrompt = () => {
               개월
             </label>
           </div>
-          {consLoading && <p style={{ color: "#888" }}>불러오는 중...</p>}
+          {consLoading && <Skeleton lines={5} height={44} />}
           {consData && (
             <>
-              <p style={{ color: "#888", fontSize: "0.85rem" }}>
+              <p style={{ color: "#888", fontSize: "0.85rem", textAlign: "left" }}>
                 조건에 맞는 항목 {consData.total_candidates}개 중 상위 {consData.results.length}개 ({consData.months[0]} ~ {consData.months[consData.months.length - 1]})
               </p>
-              <ol style={{ paddingLeft: "1.8rem" }}>
-                {consData.results.map((item) => (
-                  <li key={item.key} style={{ marginBottom: "0.7rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap" }}>
-                      {consData.category === "artist" ? (
-                        <Cover kind="artist" artist={item.name} />
-                      ) : (
-                        <Cover kind="album" artist={item.artist} album={consData.category === "track" ? item.album : item.name} />
-                      )}
-                      <div style={{ minWidth: 220, flex: 1 }}>
-                        <div>
-                          {item.name}
-                          {item.artist && <span style={{ color: "#888" }}> - {item.artist}</span>}{" "}
-                          <span style={{ color: "#888" }}>({item.plays}회)</span>
-                        </div>
-                        <div style={{ color: "#888", fontSize: "0.8rem" }}>
-                          {item.first_month} 시작 · {item.active_months}/{item.months}개월 청취 · 최다 {item.peak_month} ({Math.round(item.peak_share * 100)}%)
+              <div style={{ textAlign: "left" }}>
+                {consData.results.map((item, i) => (
+                  <RankRow
+                    key={item.key}
+                    rank={i + 1}
+                    kind={consData.category}
+                    item={{ name: item.name, artist: item.artist, album: item.album, count: item.plays }}
+                    max={1}
+                    barFraction={item.evenness ?? 0}
+                    barText={item.evenness === null ? "-" : `${Math.round(item.evenness * 100)}%`}
+                    onOpen={() =>
+                      openInLibrary(consData.category === "artist" ? { kind: "artist", name: item.name } : { kind: consData.category, name: item.name, artist: item.artist })
+                    }
+                    extra={
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, marginTop: 3 }}>
+                        <Sparkline monthly={item.monthly} months={consData.months} width={Math.min(120, consData.months.length * 4)} height={16} />
+                        <span style={{ color: "#888", fontSize: "0.75rem" }}>
+                          {item.plays.toLocaleString()}회 · {item.first_month} 시작 · {item.active_months}/{item.months}개월 청취 · 최다 {item.peak_month} ({Math.round(item.peak_share * 100)}%)
                           {item.months_since_last >= 1 ? ` · 마지막 청취 ${item.months_since_last}개월 전` : ""}
-                        </div>
+                        </span>
                       </div>
-                      <Sparkline monthly={item.monthly} months={consData.months} width={Math.min(180, consData.months.length * 6)} height={28} />
-                      <strong style={{ width: 56, textAlign: "right" }}>{item.evenness === null ? "-" : `${Math.round(item.evenness * 100)}%`}</strong>
-                    </div>
-                  </li>
+                    }
+                  />
                 ))}
-              </ol>
+              </div>
               {consData.results.length === 0 && <p style={{ color: "#888" }}>조건에 맞는 항목이 없습니다. 최소 재생·기간을 낮춰 보세요.</p>}
             </>
           )}
@@ -1480,7 +1491,7 @@ const handleCopyPrompt = () => {
 
           {tagEvolution && tagEvolution.periods.length > 0 && (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", margin: "3rem 0 1rem" }}>
                 <h2 style={{ margin: 0 }}>취향 변화 (월별 장르 트렌드)</h2>
                 <div>
                   <button
@@ -1570,28 +1581,34 @@ const handleCopyPrompt = () => {
               )}
             </>
           )}
-<br></br>
-          <h2>
+          <h2 style={{ textAlign: "left", borderLeft: `4px solid ${CAT.artist.main}`, paddingLeft: "0.6rem" }}>
             아티스트별 태그 {totalTagsPages && `(${artistTags.length} / ${stats.unique_artists})`}
           </h2>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ textAlign: "left", borderBottom: "1px solid #ccc" }}>
-                <th style={{ padding: "0.5rem" }}>아티스트</th>
-                <th style={{ padding: "0.5rem" }}>재생 횟수</th>
-                <th style={{ padding: "0.5rem" }}>태그</th>
-              </tr>
-            </thead>
-            <tbody>
-              {artistTags.map((a, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={{ padding: "0.5rem" }}>{a.artist}</td>
-                  <td style={{ padding: "0.5rem" }}>{a.play_count}</td>
-                  <td style={{ padding: "0.5rem" }}>{a.tags.join(", ") || "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ textAlign: "left" }}>
+            {artistTags.map((a, i) => (
+              <RankRow
+                key={a.artist}
+                rank={i + 1}
+                kind="artist"
+                item={{ name: a.artist, artist: null, count: a.play_count }}
+                max={artistTags[0]?.play_count ?? 1}
+                onOpen={() => openInLibrary({ kind: "artist", name: a.artist })}
+                extra={
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+                    {a.tags.length === 0 ? (
+                      <span style={{ color: "#888", fontSize: "0.8rem" }}>태그 없음</span>
+                    ) : (
+                      a.tags.map((t) => (
+                        <span key={t} style={{ padding: "0.05rem 0.55rem", borderRadius: 999, fontSize: "0.75rem", background: CAT.artist.soft }}>
+                          {t}
+                        </span>
+                      ))
+                    )}
+                  </div>
+                }
+              />
+            ))}
+          </div>
 
           {totalTagsPages !== null && tagsPage < totalTagsPages && (
             <button
@@ -1612,7 +1629,7 @@ const handleCopyPrompt = () => {
       {/* Data 탭 */}
       {activeTab === "data" && (
         <>
-          <h2 style={{ marginTop: "2rem" }}>AI 분석용 프롬프트 생성</h2>
+          <h2>AI 분석용 프롬프트 생성</h2>
           <p style={{ color: "#888", fontSize: "0.9rem" }}>
             {promptKind === "all"
               ? `지금 선택된 기간(${dateRange.label}) 기준으로 청취 데이터를 정리한 프롬프트를 만들어요.`

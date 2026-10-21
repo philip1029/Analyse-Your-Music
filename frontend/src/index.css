@@ -91,6 +91,13 @@ h2 {
     font-size: 20px;
   }
 }
+/* 파트(섹션) 제목 위아래 여백: 앞 파트와 붙어 보이지 않게 */
+#root h2 {
+  margin: 3rem 0 1rem;
+}
+#root h2:first-child {
+  margin-top: 1rem;
+}
 p {
   margin: 0;
 }
@@ -149,4 +156,10 @@ code {
 
 @media (prefers-reduced-motion: reduce) {
   .aym-rise, .aym-tab, .aym-bar, .aym-spark, .aym-skeleton { animation: none !important; }
+}
+
+/* 한국어는 글자 단위가 아니라 어절 단위로 줄바꿈 (너무 긴 단어만 강제로 끊는다) */
+#root {
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }

@@ -72,6 +72,22 @@ Last.fm을 쓰기 전부터의 재생 기록이 Apple Music에 남아있다면, 
 
 전부 로컬 파일로만 저장되고, 외부 서버로 전송되지 않습니다 (Last.fm API 호출 제외).
 
+## 백업과 복원
+
+스크로블 CSV를 고치는 작업(전처리, 아티스트/곡명 정리, 빈 아티스트 채우기, 병합 되돌리기 등)은 실행 전에 항상 백업을 만듭니다.
+
+- 백업은 `data/<CSV 이름>.bak_<종류>_<날짜>_<시각>.gz` 로 저장되고, 압축되어 CSV 한 개의 4분의 1 정도 크기입니다.
+- 같은 종류의 백업은 최근 5개만 남기고 오래된 것부터 지웁니다. 개수는 환경변수 `BACKUP_KEEP` 으로 바꿀 수 있습니다 (최소 1). 앱은 `.env` 에 적은 값을 읽지만, 터미널에서 스크립트를 직접 실행할 때는 `BACKUP_KEEP=3 python3 scripts/preprocess.py --apply` 처럼 앞에 붙여야 합니다.
+- 백업 관리는 아래 명령으로 합니다. `clean` 과 `restore` 는 기본이 dry-run이라, `--apply` 를 붙여야 실제로 반영됩니다.
+
+```bash
+python3 scripts/csv_backup.py list                          # 백업 목록과 크기
+python3 scripts/csv_backup.py clean [--apply]               # 압축 안 된 옛 백업을 종류별 최근 N개만 압축해 남기고 정리
+python3 scripts/csv_backup.py restore 파일이름 [--apply]     # 그 백업으로 CSV 를 되돌림 (되돌리기 전 현재 CSV 도 백업)
+```
+
+- 아티스트/곡명 병합을 되돌리는 기능은 백업이 아니라 `data/*_log.csv` 의 변경 기록을 사용합니다.
+
 ## 폰에서 보기
 
 같은 Wi-Fi에 연결된 폰 브라우저에서 앱을 열 수 있습니다.
@@ -128,7 +144,7 @@ Last.fm 스크로블만으로도 앱은 동작합니다. Apple Music 개인정�
 ```bash
 python3 scripts/preprocess.py --init-state    # 최초 1회 (상태 파일 생성)
 python3 scripts/preprocess.py                 # dry-run: 새 행만 판정해서 보고
-python3 scripts/preprocess.py --apply         # 실제 반영 (data/*.bak_preprocess_* 백업 + 제거 기록)
+python3 scripts/preprocess.py --apply         # 실제 반영 (data/*.bak_preprocess_*.gz 백업 + 제거 기록)
 python3 scripts/preprocess.py --apply --apple-dir "<Apple Music Activity 폴더>"   # 애플 데이터를 새로 받았을 때
 ```
 

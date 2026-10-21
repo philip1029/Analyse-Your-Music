@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -7,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from app.analysis.ai_prompt import build_ai_prompt
+from app.analysis.ai_prompt_period import build_period_prompt, list_periods
 from app.analysis.discovery import compute_discovery, get_discovery_timeline
 from app.lastfm.client import invalidate_aliased_cache
 from app.analysis.validation import validate_csv
@@ -48,6 +50,16 @@ def get_filtered_df(start: str | None, end: str | None) -> pd.DataFrame | None:
     if not csv_files:
         return None
     df = load_csv_safely(csv_files[0])
+    # 애플 뮤직 유래(A) 기록 중 라이브러리에서 아티스트/앨범을 못 찾은 일부 곡은
+    # artist/album/track이 빈 칸으로 저장되어 있는데, pandas가 이를 NaN(float)으로
+    # 읽어들인다. 이 NaN이 그대로 내려가면 문자열 메서드 호출(.lower() 등)에서
+    # AttributeError가 나거나 JSON 직렬화 시 "Out of range float values are not
+    # JSON compliant: nan" 오류가 난다. 실제 분석/화면용 데이터는 여기서 한 번에
+    # 빈 문자열로 정리해서, 이 함수를 쓰는 모든 엔드포인트가 안전하게 문자열로
+    # 다룰 수 있게 한다. (원본 결측치 자체를 보고 싶은 /api/validate,
+    # /api/debug/empty-album은 get_filtered_df를 쓰지 않고 load_csv_safely를
+    # 직접 불러서 원본 NaN을 그대로 본다.)
+    df[["artist", "album", "track"]] = df[["artist", "album", "track"]].fillna("")
     df = df.drop_duplicates(subset=["uts", "artist", "track"], keep="first")
     df = filter_by_date_range(df, start, end)
     return df
@@ -274,7 +286,28 @@ def refresh_scrobbles():
     if result.returncode != 0:
         return {"success": False, "error": result.stderr[-2000:]}
 
-    return {"success": True, "output": result.stdout[-2000:]}
+    # 새로 받은 기록에 전처리(가짜/중복 기록 제거)를 적용한다. 실패해도 새로고침 자체는
+    # 성공으로 둔다 (원본은 백업되고, 지운 행은 data/preprocess_removed.csv 에 남는다).
+    preprocess = None
+    pre_script = script_path.with_name("preprocess.py")
+    try:
+        pre = subprocess.run(
+            ["python3", str(pre_script), "--apply", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        if pre.returncode == 0:
+            json_lines = [ln for ln in pre.stdout.splitlines() if ln.startswith("{")]
+            preprocess = json.loads(json_lines[-1]) if json_lines else None
+        else:
+            preprocess = {"error": (pre.stderr or pre.stdout)[-500:]}
+    except subprocess.TimeoutExpired:
+        preprocess = {"error": "전처리 실행 시간 초과"}
+    except Exception as e:  # noqa: BLE001
+        preprocess = {"error": str(e)}
+
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess}
 
 @app.get("/api/taste/evolution")
 def taste_evolution(
@@ -373,6 +406,11 @@ def listening_day(date: str, start: str | None = None, end: str | None = None):
     df["date"] = df["datetime_kst"].dt.strftime("%Y-%m-%d")
 
     day_df = df[df["date"] == date].sort_values("datetime_kst")
+    # artist/album/track에 결측치(NaN)가 있으면 JSON으로 직렬화할 때
+    # "Out of range float values are not JSON compliant: nan" 오류로 500이 남.
+    # (애플 뮤직 유래 기록 중 아티스트를 못 찾은 몇몇 곡이 빈 값 -> NaN으로 읽힘)
+    day_df = day_df.copy()
+    day_df[["artist", "album", "track"]] = day_df[["artist", "album", "track"]].fillna("")
 
     tracks = [
         {
@@ -404,3 +442,27 @@ def ai_prompt(start: str | None = None, end: str | None = None):
 
     prompt_text = build_ai_prompt(df)
     return {"prompt": prompt_text}
+
+
+@app.get("/api/ai-prompt/periods")
+def ai_prompt_periods(period: str = "month"):
+    """월간/주간/연간 프롬프트에서 고를 수 있는 기간 목록 (최신순)."""
+    if period not in ("month", "week", "year"):
+        return {"error": "period 는 month, week, year 중 하나여야 합니다."}
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return {"periods": list_periods(df, period)}
+
+
+@app.get("/api/ai-prompt/period")
+def ai_prompt_period(period: str = "month", anchor: str | None = None):
+    """한 달(YYYY-MM) / 한 주(그 주의 아무 날짜 YYYY-MM-DD) / 한 해(YYYY) 기준 분석 프롬프트.
+    anchor 를 생략하면 기록이 있는 가장 최근 기간. 날짜 필터는 적용하지 않는다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    try:
+        return build_period_prompt(df, period, anchor)
+    except ValueError as e:
+        return {"error": str(e)}

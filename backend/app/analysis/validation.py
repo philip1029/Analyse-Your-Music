@@ -32,7 +32,12 @@ def validate_csv(df: pd.DataFrame) -> dict:
         warnings.append(f"유효하지 않은 uts 값: {invalid_uts_count}개")
 
     # 3. utc_time 형식의 유효성 (파싱 가능한지)
-    parsed = pd.to_datetime(df["utc_time"], errors="coerce")
+    # last.fm(L) 기록은 "YYYY-MM-DD HH:MM:SS", 애플 뮤직 유래(A) 기록은
+    # "YYYY-MM-DD HH:MM"(초 단위 없음)로 형식이 섞여 있다. format="mixed"
+    # 없이 파싱하면 pandas가 열 전체에 하나의 형식을 추론하려다 실패해서
+    # 멀쩡한 A쪽 기록까지 전부 "파싱 불가"로 오탐하므로 반드시 지정한다
+    # (main.py의 다른 엔드포인트들과 동일한 방식).
+    parsed = pd.to_datetime(df["utc_time"], errors="coerce", format="mixed")
     invalid_time_count = parsed.isna().sum()
     if invalid_time_count > 0:
         warnings.append(f"파싱 불가능한 utc_time: {invalid_time_count}개")

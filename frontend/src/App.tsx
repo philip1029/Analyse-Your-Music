@@ -540,11 +540,52 @@ function App() {
   const [generatingPrompt, setGeneratingPrompt] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // 전체 기간(선택한 날짜 범위) / 월간 / 주간 프롬프트
+  const [promptKind, setPromptKind] = useState<"all" | "month" | "week" | "year">("all");
+  const [periodOptions, setPeriodOptions] = useState<
+    { key: string; label: string; scrobbles: number; partial: boolean }[]
+  >([]);
+  const [periodKey, setPeriodKey] = useState("");
+  const [promptNote, setPromptNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAiPrompt(null);
+    setPromptNote(null);
+    if (promptKind === "all") return;
+    fetch(`${BASE_URL}/api/ai-prompt/periods?period=${promptKind}`)
+      .then((res) => res.json())
+      .then((data) => {
+        const options = data.periods ?? [];
+        setPeriodOptions(options);
+        // 기본값은 가장 최근의 '끝난' 기간 (진행 중인 기간은 목록에서 직접 고를 수 있음)
+        setPeriodKey((options.find((o: { partial: boolean }) => !o.partial) ?? options[0])?.key ?? "");
+      })
+      .catch((err) => setError(err.message));
+  }, [promptKind]);
+
 const handleGeneratePrompt = () => {
   setGeneratingPrompt(true);
-  fetch(`${BASE_URL}/api/ai-prompt${buildQuery()}`)
+  setPromptNote(null);
+  const url =
+    promptKind === "all"
+      ? `${BASE_URL}/api/ai-prompt${buildQuery()}`
+      : `${BASE_URL}/api/ai-prompt/period?period=${promptKind}&anchor=${encodeURIComponent(periodKey)}`;
+  fetch(url)
     .then((res) => res.json())
-    .then((data) => setAiPrompt(data.prompt))
+    .then((data) => {
+      if (data.error) {
+        setAiPrompt(null);
+        setPromptNote(data.error);
+        return;
+      }
+      setAiPrompt(data.prompt);
+      if (data.meta) {
+        setPromptNote(
+          `${data.meta.label} · ${data.meta.scrobbles.toLocaleString()}회` +
+            (data.meta.partial ? " · 기록이 일부 기간만 있어요 (일평균 위주로 비교됩니다)" : "")
+        );
+      }
+    })
     .catch((err) => setError(err.message))
     .finally(() => setGeneratingPrompt(false));
 };
@@ -771,10 +812,29 @@ const handleCopyPrompt = () => {
       .then((res) => res.json())
       .then((data) => {
         if (data.success) {
-          setRefreshMessage("업데이트 완료! 잠시 후 새로고침됩니다...");
+          // 새로 받은 기록에 적용된 전처리(가짜/중복 스크로블 정리) 결과를 함께 보여준다.
+          const added = /새로 추가된 곡: (\d+)개/.exec(data.output ?? "")?.[1];
+          const pre = data.preprocess as
+            | { error?: string; removed?: number; pending?: Record<string, number> }
+            | null
+            | undefined;
+          const parts: string[] = [];
+          if (added) parts.push(`새 스크로블 ${added}개`);
+          if (pre?.error) {
+            parts.push(`전처리 실패: ${pre.error}`);
+          } else if (pre) {
+            if (pre.removed) parts.push(`가짜/중복 의심 ${pre.removed}행 정리`);
+            const pendingCount = Object.values(pre.pending ?? {}).reduce((a, b) => a + b, 0);
+            if (pendingCount) parts.push(`보류 ${pendingCount}건(지우지 않음)`);
+          }
+          setRefreshMessage(
+            `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
+          );
+          // 정리된 행이 있거나 전처리가 실패했을 때는 결과를 읽을 시간을 더 준다.
+          const needsTime = Boolean(pre?.error || pre?.removed);
           setTimeout(() => {
             window.location.reload();
-          }, 1000);
+          }, needsTime ? 4000 : 1000);
         } else {
           setRefreshMessage(`실패: ${data.error}`);
           setRefreshing(false);
@@ -1331,16 +1391,43 @@ const handleCopyPrompt = () => {
         <>
           <h2 style={{ marginTop: "2rem" }}>AI 분석용 프롬프트 생성</h2>
           <p style={{ color: "#888", fontSize: "0.9rem" }}>
-            지금 선택된 기간({dateRange.label}) 기준으로 청취 데이터를 정리한 프롬프트를 만들어요. 복사해서
-            ChatGPT나 Claude 같은 AI에게 붙여넣고 취향 분석을 물어보면 됩니다.
+            {promptKind === "all"
+              ? `지금 선택된 기간(${dateRange.label}) 기준으로 청취 데이터를 정리한 프롬프트를 만들어요.`
+              : `${
+                  { month: "고른 달을 직전 달과", week: "고른 주를 직전 주와", year: "고른 해를 전년과" }[promptKind]
+                } 비교한 프롬프트를 만들어요. (위쪽 날짜 범위와 상관없이 전체 기록에서 계산됩니다)`}{" "}
+            복사해서 ChatGPT나 Claude 같은 AI에게 붙여넣고 취향 분석을 물어보면 됩니다.
           </p>
+          <div style={{ display: "flex", gap: "1rem", alignItems: "center", marginBottom: "0.75rem", flexWrap: "wrap" }}>
+            {([["all", "전체 기간"], ["year", "연간"], ["month", "월간"], ["week", "주간"]] as const).map(([kind, label]) => (
+              <label key={kind} style={{ cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="promptKind"
+                  checked={promptKind === kind}
+                  onChange={() => setPromptKind(kind)}
+                />{" "}
+                {label}
+              </label>
+            ))}
+            {promptKind !== "all" && (
+              <select value={periodKey} onChange={(e) => setPeriodKey(e.target.value)} style={{ padding: "0.3rem" }}>
+                {periodOptions.map((o) => (
+                  <option key={o.key} value={o.key}>
+                    {o.label} ({o.scrobbles.toLocaleString()}회{o.partial ? " · 일부 기간" : ""})
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <button
             onClick={handleGeneratePrompt}
-            disabled={generatingPrompt}
+            disabled={generatingPrompt || (promptKind !== "all" && !periodKey)}
             style={{ padding: "0.5rem 1rem", marginBottom: "1rem" }}
           >
             {generatingPrompt ? "생성 중..." : "📋 프롬프트 생성"}
           </button>
+          {promptNote && <p style={{ color: "#888", fontSize: "0.85rem", margin: "0 0 0.75rem" }}>{promptNote}</p>}
 
           {aiPrompt && (
             <div>

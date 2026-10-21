@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import subprocess
 from pathlib import Path
 import pandas as pd
@@ -38,6 +39,7 @@ from app.analysis.taste import (
 )
 from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
+from app import apple_files
 from app.env_config import get_config_status, save_config
 from app.deps_install import install_deps
 
@@ -63,12 +65,34 @@ def load_csv_safely(path: Path) -> pd.DataFrame:
         return pd.read_csv(path, encoding="cp949")
 
 
+_base_cache: dict = {"sig": None, "df": None}
+_base_lock = threading.Lock()
+
+
+def _load_base_df(path: Path) -> pd.DataFrame:
+    """
+    정리를 마친(빈 값 처리 · 중복 제거) 전체 기록. 페이지 하나가 열리면 API 가 수십 번 불리는데 매번 CSV 를 다시 읽으면
+    느려지므로, 파일이 바뀌지 않는 동안(수정 시각·크기가 같은 동안)은 한 번만 읽고 재사용한다.
+    호출하는 쪽이 열을 덧붙여도 원본에 영향이 없도록 항상 복사본을 돌려준다.
+    """
+    st = path.stat()
+    sig = (str(path), st.st_mtime_ns, st.st_size)
+    with _base_lock:
+        if _base_cache["sig"] != sig:
+            df = load_csv_safely(path)
+            df[["artist", "album", "track"]] = df[["artist", "album", "track"]].fillna("")
+            _base_cache["df"] = df.drop_duplicates(subset=["uts", "artist", "track"], keep="first")
+            _base_cache["sig"] = sig
+        base = _base_cache["df"]
+    return base.copy()
+
+
 def get_filtered_df(start: str | None, end: str | None) -> pd.DataFrame | None:
     """CSV를 읽고 기간 필터까지 적용한 데이터프레임을 반환한다."""
     csv_files = list(DATA_DIR.glob("*_scrobbles.csv"))
     if not csv_files:
         return None
-    df = load_csv_safely(csv_files[0])
+    df = _load_base_df(csv_files[0])
     # 애플 뮤직 유래(A) 기록 중 라이브러리에서 아티스트/앨범을 못 찾은 일부 곡은
     # artist/album/track이 빈 칸으로 저장되어 있는데, pandas가 이를 NaN(float)으로
     # 읽어들인다. 이 NaN이 그대로 내려가면 문자열 메서드 호출(.lower() 등)에서
@@ -78,8 +102,6 @@ def get_filtered_df(start: str | None, end: str | None) -> pd.DataFrame | None:
     # 다룰 수 있게 한다. (원본 결측치 자체를 보고 싶은 /api/validate,
     # /api/debug/empty-album은 get_filtered_df를 쓰지 않고 load_csv_safely를
     # 직접 불러서 원본 NaN을 그대로 본다.)
-    df[["artist", "album", "track"]] = df[["artist", "album", "track"]].fillna("")
-    df = df.drop_duplicates(subset=["uts", "artist", "track"], keep="first")
     df = filter_by_date_range(df, start, end)
     return df
 
@@ -116,6 +138,31 @@ def config_set(body: ConfigBody):
         return save_config(body.api_key, body.username, body.apple_dir)
     except ValueError as e:
         return {"error": str(e)}
+
+
+@app.get("/api/apple-files")
+def apple_files_status():
+    """Apple 폴더 안내: 파일마다 용도·받는 곳·지금 폴더에 있는지."""
+    return apple_files.checklist(get_config_status().get("apple_dir"))
+
+
+class AppleImportBody(BaseModel):
+    key: str
+    source: str
+    overwrite: bool = False
+
+
+@app.post("/api/apple-files/import")
+def apple_files_import(body: AppleImportBody):
+    """다른 위치에 받아 둔 Apple 파일을 설정한 Apple 폴더로 복사한다 (원본은 그대로)."""
+    folder = get_config_status().get("apple_dir")
+    try:
+        result = apple_files.import_file(folder, body.source, body.key, body.overwrite)
+    except FileExistsError as e:
+        return {"error": str(e), "exists": True}
+    except ValueError as e:
+        return {"error": str(e)}
+    return {**result, **apple_files.checklist(folder)}
 
 
 @app.post("/api/install-deps")

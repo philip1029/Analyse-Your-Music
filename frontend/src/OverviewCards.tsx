@@ -23,8 +23,8 @@ const strong: CSSProperties = { fontWeight: 800, color: "CanvasText" };
 
 function Bars({ bars }: { bars: number[] }) {
   const max = Math.max(...bars, 1);
-  const w = 8;
-  const gap = 5;
+  const w = 6;
+  const gap = 4;
   return (
     <svg width={bars.length * (w + gap) - gap} height={36} aria-hidden style={{ flexShrink: 0 }}>
       {bars.map((b, i) => {
@@ -38,16 +38,19 @@ function Bars({ bars }: { bars: number[] }) {
 function StatCard({ title, color, data, deltaTitle, index = 0 }: { title: string; color: string; data: CardData; deltaTitle: string; index?: number }) {
   const d = data.delta_pct;
   return (
-    <div className="aym-rise" style={{ ...stagger(index, 70), background: color, color: CARD_INK, clipPath: DOG_EAR, padding: "0.9rem 1.1rem 1rem", minHeight: 104, textAlign: "left" }}>
+    <div className="aym-rise" style={{ ...stagger(index, 70), background: color, color: CARD_INK, clipPath: DOG_EAR, padding: "0.9rem 1.1rem 1rem", minHeight: 124, textAlign: "left" }}>
       <div style={{ fontSize: "0.95rem", fontWeight: 600 }}>{title}</div>
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.5rem" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: "0.5rem", flexWrap: "wrap" }}>
-          <span style={{ fontSize: "2.3rem", fontWeight: 800, lineHeight: 1 }}><Num value={data.value} /></span>
-          {d !== null && (
-            <span title={`${deltaTitle} (비교 대상 ${data.prev.toLocaleString()})`} style={{ fontSize: "0.95rem", fontWeight: 700 }}>
-              {d >= 0 ? "↑" : "↓"} <Num value={Math.abs(Math.round(d))} duration={900} />%
-            </span>
-          )}
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "0.6rem", marginTop: "0.5rem", flexWrap: "wrap" }}>
+        {/* 모든 카드가 같은 배치: 큰 숫자 · 그 아래 증감 칩(없어도 한 줄 자리를 남김) · 오른쪽 아래 막대 */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem", minWidth: 0 }}>
+          <span style={{ fontSize: "2.3rem", fontWeight: 800, lineHeight: 1, whiteSpace: "nowrap" }}><Num value={data.value} /></span>
+          <span title={d !== null ? `${deltaTitle} (비교 대상 ${data.prev.toLocaleString()})` : undefined} style={{ fontSize: "0.95rem", fontWeight: 700, lineHeight: "1.2rem", minHeight: "1.2rem" }}>
+            {d !== null && (
+              <>
+                {d >= 0 ? "↑" : "↓"} <Num value={Math.abs(Math.round(d))} duration={900} />%
+              </>
+            )}
+          </span>
         </div>
         <Bars key={data.bars.join(",")} bars={data.bars} />
       </div>
@@ -104,7 +107,7 @@ export function OverviewCards({
             <p className="aym-rise" style={sentenceBase}>
               이 기간에 음악을 <span style={strong}><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} /></span> 들었어요.
               {scrobbleDelta !== null && (
-                <> 직전 같은 기간보다 스크로블이 <span style={strong}><Num value={Math.abs(Math.round(scrobbleDelta))} />%</span> {scrobbleDelta >= 0 ? "늘었어요" : "줄었어요"}.</>
+                <><br />직전 같은 기간보다 스크로블이 <span style={strong}><Num value={Math.abs(Math.round(scrobbleDelta))} />%</span> {scrobbleDelta >= 0 ? "늘었어요" : "줄었어요"}.</>
               )}
             </p>
           )}

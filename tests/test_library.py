@@ -163,3 +163,25 @@ class CreditClusterDetailTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RankInfoTest(unittest.TestCase):
+    def test_details_include_rank_with_ties_and_total(self):
+        from app.analysis.library import rank_info
+
+        df = pd.DataFrame(frame())
+        # 재생 수: Pink Floyd 10, VISUAL ARTS / Key 4, LIA & … 2, Melvins 2, Radiohead 3 (아티스트 열 기준; 빈 아티스트 제외)
+        a = artist_detail(df, "Pink Floyd")
+        self.assertEqual(a["rank"]["plays"], 1)
+        self.assertEqual(a["rank"]["total"], 5)
+        self.assertEqual(artist_detail(df, "Radiohead")["rank"]["plays"], 3)
+        # 같은 재생 수는 같은 순위 (Melvins 2, LIA 2 → 둘 다 4위)
+        self.assertEqual(artist_detail(df, "Melvins")["rank"]["plays"], artist_detail(df, "LIA & VISUAL ARTS / Key")["rank"]["plays"])
+        # 곡·앨범도 순위가 들어 있다 (Tori No Uta 는 두 크레딧 표기를 한 곡으로 센다)
+        t = track_detail(df, "VISUAL ARTS / Key", "Tori No Uta")
+        self.assertEqual(t["rank"]["plays"], 1)          # 6회 (두 크레딧 표기를 합침) > Have a Cigar 5회
+        self.assertEqual(track_detail(df, "Pink Floyd", "Have a Cigar")["rank"]["plays"], 2)
+        al = album_detail(df, "Pink Floyd", "WYWH")
+        self.assertEqual(al["rank"]["plays"], 1)
+        self.assertGreater(al["rank"]["total"], 1)
+        self.assertEqual(rank_info(df, "artist", name="Nobody")["plays"], None)

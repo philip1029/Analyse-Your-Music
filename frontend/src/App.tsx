@@ -9,6 +9,7 @@ import { ALL_TIME, PeriodBar } from "./PeriodBar";
 import { Skeleton } from "./motion";
 import { RankRow } from "./RankRow";
 import { SearchBox } from "./Search";
+import { AppleFiles } from "./AppleFiles";
 import { makeFmt, withWeekday, type Metric } from "./format";
 import {
   BarChart,
@@ -778,16 +779,6 @@ const handleCopyPrompt = () => {
       .then((d) => setTimeSummary(d.error ? null : d))
       .catch((err) => setError(err.message));
 
-    fetch(`${BASE_URL}/api/taste/tag-distribution${qs}`)
-      .then((res) => res.json())
-      .then(setTagDistribution)
-      .catch((err) => setError(err.message));
-
-    fetch(`${BASE_URL}/api/taste/evolution${buildQuery({ mode: evolutionMode })}`)
-      .then((res) => res.json())
-      .then(setTagEvolution)
-      .catch((err) => setError(err.message));
-
     fetch(`${BASE_URL}/api/diversity${qs}`)
       .then((res) => res.json())
       .then(setDiversity)
@@ -797,16 +788,36 @@ const handleCopyPrompt = () => {
       .then((res) => res.json())
       .then(setValidation)
       .catch((err) => setError(err.message));
-
-    fetch(`${BASE_URL}/api/discovery/summary${qs}`)
-      .then((res) => res.json())
-      .then(setDiscoverySummary)
-      .catch((err) => setError(err.message));
-  }, [buildQuery, evolutionMode]);
+  }, [buildQuery]);
 
   useEffect(() => {
     loadAllData();
   }, [loadAllData]);
+
+  // 무거운 Taste·Discovery 데이터는 그 탭을 열 때만 받는다 (페이지를 처음 열 때 한꺼번에 받으면 느려진다). 태그 현황은 Data 탭에서도 쓴다.
+  useEffect(() => {
+    if (activeTab !== "taste" && activeTab !== "data") return;
+    fetch(`${BASE_URL}/api/taste/tag-distribution${buildQuery()}`)
+      .then((res) => res.json())
+      .then(setTagDistribution)
+      .catch((err) => setError(err.message));
+  }, [activeTab, buildQuery]);
+
+  useEffect(() => {
+    if (activeTab !== "taste") return;
+    fetch(`${BASE_URL}/api/taste/evolution${buildQuery({ mode: evolutionMode })}`)
+      .then((res) => res.json())
+      .then(setTagEvolution)
+      .catch((err) => setError(err.message));
+  }, [activeTab, buildQuery, evolutionMode]);
+
+  useEffect(() => {
+    if (activeTab !== "discovery") return;
+    fetch(`${BASE_URL}/api/discovery/summary${buildQuery()}`)
+      .then((res) => res.json())
+      .then(setDiscoverySummary)
+      .catch((err) => setError(err.message));
+  }, [activeTab, buildQuery]);
 
   useEffect(() => {
     fetch(`${BASE_URL}/api/update-check`)
@@ -828,10 +839,14 @@ const handleCopyPrompt = () => {
       .catch(() => {});
   }, []);
 
-  // 날짜 범위가 바뀔 때마다 1쪽부터 다시 불러온다 (이전 목록은 새 응답이 올 때까지 그대로 둔다)
+  // Taste 탭을 열 때, 그리고 날짜 범위가 바뀔 때 1쪽부터 다시 불러온다 (이전 목록은 새 응답이 올 때까지 그대로 둔다).
+  // 같은 범위로 탭만 다시 열면 이미 불러온 목록("더 보기" 포함)을 그대로 쓴다.
+  const tagsLoadedFor = useRef<typeof loadArtistTagsPage | null>(null);
   useEffect(() => {
+    if (activeTab !== "taste" || tagsLoadedFor.current === loadArtistTagsPage) return;
+    tagsLoadedFor.current = loadArtistTagsPage;
     loadArtistTagsPage(1);
-  }, [loadArtistTagsPage]);
+  }, [activeTab, loadArtistTagsPage]);
 
   const handleInvalidateAliasCache = () => {
     setInvalidating(true);
@@ -1233,6 +1248,7 @@ const handleCopyPrompt = () => {
       {activeTab === "music" && <Library query={buildQuery} request={libraryRequest} />}
 
       {/* Discovery 탭 */}
+      {activeTab === "discovery" && !discoverySummary && <Skeleton lines={4} height={60} />}
       {activeTab === "discovery" && discoverySummary && (
         <>
           <h2 style={{ textAlign: "left" }}>새로 발견한 음악</h2>
@@ -1532,21 +1548,16 @@ const handleCopyPrompt = () => {
               <div style={{ color: "#999", fontSize: "0.8rem", marginBottom: "0.9rem", lineHeight: 1.6 }}>
                 privacy.apple.com 에서 받은 “Apple Music 활동” 폴더 경로예요. 비워 두면 Last.fm 데이터만 쓰고, 지정하면 가짜/중복 스크로블 판정·곡 길이·빈 아티스트 채우기가 Apple 기록을 근거로 써요.
                 압축을 푼 맨 위 폴더를 적어도 안에서 찾아요.
-                {configStatus?.apple_dir ? (
-                  <div>
-                    {([["play_activity", "재생 로그"], ["daily_tracks", "일별 곡 목록"], ["library_xml", "보관함 XML"]] as const).map(([k, name]) => (
-                      <span key={k} style={{ marginRight: "0.8rem" }}>
-                        {configStatus.apple_files?.[k] ? "✅" : "▫️"} {name}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
               </div>
 
               <button onClick={handleSaveConfig} disabled={savingConfig} style={{ padding: "0.5rem 1rem" }}>
                 {savingConfig ? "저장 중..." : "저장"}
               </button>
               {configMessage && <p style={{ color: "#999", margin: "0.6rem 0 0" }}>{configMessage}</p>}
+            </div>
+
+            <div style={{ marginTop: "1.2rem" }}>
+              <AppleFiles appleDir={configStatus?.apple_dir ?? ""} />
             </div>
 
             <div style={{ marginTop: "1.2rem", paddingTop: "1.2rem", borderTop: "1px solid rgba(128,128,128,0.25)" }}>

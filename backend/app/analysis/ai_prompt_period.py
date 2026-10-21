@@ -7,7 +7,7 @@
 
 import pandas as pd
 
-from app.analysis.ai_prompt import _sparkline, _table
+from app.analysis.ai_prompt import _sparkline, _table, analysis_request
 from app.analysis.diversity import compute_diversity
 from app.analysis.library import ranked_page
 from app.analysis.listening_time import attach_durations, coverage, fmt_hm, total_seconds
@@ -446,35 +446,8 @@ def build_period_prompt(df_all: pd.DataFrame, period: str, anchor: str | None = 
     lines.append(_table(["트랙", "재생 횟수"], [[n, int(c)] for n, c in rep.head(8).items()]))
     lines.append("")
 
-    # 분석 요청
-    lines.append("## 분석 요청")
-    lines.append("위 데이터를 참고해서 다음을 알려주세요:")
-    if period == "month":
-        asks = [
-            f"{label}의 음악 취향을 한두 문단으로 요약하고, 지난달과 달라진 점을 짚어주세요.",
-            "순위 표의 '신규/복귀' 표시와 신규 발견 목록을 보고, 이번 달의 새로운 관심사가 무엇이었는지 분석해 주세요.",
-            "주차별 흐름과 일별 추이를 보고, 이번 달 청취 리듬(몰아 들은 시기, 뜸했던 시기)과 그 원인으로 짐작되는 것을 말해 주세요.",
-            "시간대·세션 데이터를 보고 청취 습관(언제, 얼마나 길게)에 대해 알려주세요. 새벽 장시간 재생은 자는 동안 켜져 있던 것일 수 있으니 감안해 주세요.",
-            "다음 달에 들어보면 좋을 아티스트/앨범을 3~5개 추천해 주세요 (이번 달 신규 발견과 비중이 늘어난 장르를 근거로).",
-        ]
-    elif period == "year":
-        asks = [
-            f"{label} 한 해의 음악 취향을 한두 문단으로 요약하고, {prev_label}과 달라진 점을 짚어주세요.",
-            "월별 표와 12개월 추이를 보고, 한 해의 흐름(몰두한 시기, 뜸했던 시기)과 그 계기로 짐작되는 것을 설명해 주세요.",
-            "연간 Top 10(아티스트/트랙/앨범)과 신규 발견·복귀 목록을 보고, 이 해의 '키워드' 3개를 뽑아 한 줄씩 설명해 주세요.",
-            "장르·언어권 비중 변화에서 취향이 크게 이동했는지 분석하고, 시간대·세션 데이터로 청취 습관이 달라졌는지 짚어주세요. 새벽 장시간 재생은 자는 동안 켜져 있던 것일 수 있으니 감안해 주세요.",
-            "다음 해에 파볼 만한 장르·아티스트·앨범을 5개 추천해 주세요 (이 해의 신규 발견과 비중이 늘어난 장르를 근거로).",
-        ]
-    else:
-        asks = [
-            f"{label} 한 주의 청취를 한두 문단으로 요약해 주세요.",
-            "요일별 표를 보고, 이번 주 어느 날 어떤 음악을 어떻게 들었는지 하루하루의 특징을 짧게 정리해 주세요.",
-            "지난주 대비 늘어난/줄어든 아티스트와 장르를 짚고, 한 주 사이의 취향 이동이 있었는지 분석해 주세요.",
-            "시간대·세션 데이터에서 눈에 띄는 습관이나 이상한 점(새벽 장시간 재생 등)이 있으면 알려주세요.",
-            "다음 주에 들어보면 좋을 음악이나 이어서 파볼 만한 아티스트를 2~3개 추천해 주세요.",
-        ]
-    for i, a in enumerate(asks, 1):
-        lines.append(f"{i}. {a}")
+    # 분석 요청 (원칙 + A~E 구조는 기간 전체 프롬프트와 같다)
+    lines.extend(analysis_request(period, label, prev_label))
 
     return {
         "prompt": "\n".join(lines),

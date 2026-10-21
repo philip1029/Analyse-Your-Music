@@ -73,6 +73,31 @@ def ranked_page(df: pd.DataFrame, category: str, offset: int = 0, limit: int = 5
     return {"category": category, "metric": metric, "total": int(len(counts)), "total_plays": total_plays, "offset": offset, "items": items}
 
 
+def rank_info(df: pd.DataFrame, category: str, name: str | None = None, key: str | None = None) -> dict:
+    """
+    전체 항목 중 이 아티스트/앨범/곡의 순위. plays = 재생 횟수 순위, time = 청취 시간(횟수 x 곡 길이) 순위(길이를 모르면 None),
+    total = 순위 매겨진 항목 수. 같은 값은 같은 순위(공동 순위)로 센다. 아티스트는 name, 앨범/곡은 resolve_all 의 key 로 찾는다.
+    """
+    d = attach_durations(df)
+    if category == "artist":
+        grp = d["artist"].fillna("").astype(str)
+        target = name
+    else:
+        grp, _, _ = resolve_all(d, category)
+        target = key
+    valid = grp != ""
+    plays = grp[valid].value_counts()
+    if target not in plays.index:
+        return {"plays": None, "time": None, "total": int(len(plays))}
+    secs = d.loc[valid, "dur_sec"].fillna(0).groupby(grp[valid]).sum()
+    t = float(secs.get(target, 0))
+    return {
+        "plays": int((plays > plays[target]).sum()) + 1,
+        "time": int((secs > t).sum()) + 1 if t > 0 else None,
+        "total": int(len(plays)),
+    }
+
+
 def artist_detail(df: pd.DataFrame, name: str) -> dict | None:
     rows = df[df["artist"] == name]
     if rows.empty:
@@ -90,6 +115,7 @@ def artist_detail(df: pd.DataFrame, name: str) -> dict | None:
     kst = pd.to_datetime(rows["utc_time"], utc=True, format="mixed").dt.tz_convert("Asia/Seoul")
     return {
         "name": name,
+        "rank": rank_info(df, "artist", name=name),
         "scrobbles": int(len(rows)),
         "seconds": _seconds(rows),
         "first_played": kst.min().strftime("%Y-%m-%d"),     # 처음 / 마지막으로 들은 날 (KST)
@@ -124,6 +150,7 @@ def album_detail(df: pd.DataFrame, artist: str | None, name: str) -> dict | None
     rows = select_rows(df, "album", artist, name)
     if rows.empty:
         return None
+    rank = rank_info(df, "album", key=resolve_all(df, "album")[0].loc[rows.index[0]])
     _, _, album_names = resolve_all(rows, "album")
     # 곡은 대소문자 차이를 합쳐 세고, 곡 페이지가 열리도록 그 곡에서 가장 많이 쓰인 아티스트 표기를 함께 준다
     t_keys, _, t_names = resolve_all(rows, "track")
@@ -140,6 +167,7 @@ def album_detail(df: pd.DataFrame, artist: str | None, name: str) -> dict | None
     return {
         "name": album_names.iloc[0],
         "artist": artist,
+        "rank": rank,
         "scrobbles": int(len(rows)),
         "seconds": _seconds(rows),
         "first_played": kst.min().strftime("%Y-%m-%d"),     # 이 앨범을 처음 / 마지막으로 들은 날 (KST)
@@ -158,6 +186,7 @@ def track_detail(df: pd.DataFrame, artist: str | None, name: str, offset: int = 
     rows = select_rows(df, "track", artist, name)
     if rows.empty:
         return None
+    rank = rank_info(df, "track", key=resolve_all(df, "track")[0].loc[rows.index[0]])   # 앨범으로 좁히기 전, 곡 전체 기준
     _, reps, names = resolve_all(rows, "track")
     shown, rep = names.iloc[0], reps.iloc[0] or None
     _, _, alb_names = resolve_all(rows, "album")
@@ -175,6 +204,7 @@ def track_detail(df: pd.DataFrame, artist: str | None, name: str, offset: int = 
     return {
         "name": shown,
         "artist": rep,
+        "rank": rank,
         "album": album_of,
         "scope_album": scoped,
         "albums": [{"name": n, "count": int(c)} for n, c in breakdown.items()],

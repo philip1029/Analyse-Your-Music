@@ -21,14 +21,17 @@ type Item = { name: string; artist: string | null; album?: string | null; count:
 
 type ListResult = { category: Category; total: number; total_plays: number; offset: number; items: Item[] };
 
-type ArtistDetail = { name: string; scrobbles: number; seconds: number; first_played: string; last_played: string; albums_count: number; tracks_count: number; albums: Item[]; tracks: Item[] };
+type Rank = { plays: number | null; time: number | null; total: number };
 
-type AlbumDetail = { name: string; artist: string | null; scrobbles: number; seconds: number; first_played: string; last_played: string; tracks_count: number; tracks: Item[] };
+type ArtistDetail = { name: string; rank?: Rank; scrobbles: number; seconds: number; first_played: string; last_played: string; albums_count: number; tracks_count: number; albums: Item[]; tracks: Item[] };
+
+type AlbumDetail = { name: string; rank?: Rank; artist: string | null; scrobbles: number; seconds: number; first_played: string; last_played: string; tracks_count: number; tracks: Item[] };
 
 type Play = { time: string; album: string | null; artist: string | null; source: string | null };
 
 type TrackDetail = {
   name: string;
+  rank?: Rank;
   artist: string | null;
   album: string | null;
   scope_album: string | null;
@@ -75,6 +78,18 @@ function Stat({ title, value, sub }: { title: string; value: string | number; su
       <div style={bigNumber}>{typeof value === "number" ? <Num value={value} /> : value}</div>
       {sub && <div style={{ color: "#999", fontSize: "0.85rem" }}>{sub}</div>}
     </div>
+  );
+}
+
+// 전체 중 순위를 눈에 띄게 (재생 횟수 순위 / 청취 시간 순위). 순위는 선택한 기간 안의 기록 기준
+function RankStats({ rank, noun }: { rank?: Rank; noun: string }) {
+  if (!rank || rank.plays === null) return null;
+  const total = `${rank.total.toLocaleString()}${noun} 중`;
+  return (
+    <>
+      <Stat title="Rank · 재생" value={`#${rank.plays.toLocaleString()}`} sub={total} />
+      {rank.time !== null && <Stat title="Rank · 시간" value={`#${rank.time.toLocaleString()}`} sub={total} />}
+    </>
   );
 }
 
@@ -579,6 +594,7 @@ function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<
       <div style={{ display: "flex", gap: "1rem 2rem", flexWrap: "wrap", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />
+        <RankStats rank={data.rank} noun="명" />
         <Stat title="Albums" value={data.albums_count} />
         <Stat title="Tracks" value={data.tracks_count} />
         <Stat title="First" value={data.first_played} sub={agoText(data.first_played)} />
@@ -631,6 +647,7 @@ function AlbumView({
       <div style={{ display: "flex", gap: "1rem 2rem", flexWrap: "wrap", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={data.scrobbles} />
         <Stat title="Time" value={fmtHM(data.seconds)} />
+        <RankStats rank={data.rank} noun="개" />
         <Stat title="Tracks" value={data.tracks_count} />
         <Stat title="First" value={data.first_played} sub={agoText(data.first_played)} />
         <Stat title="Last" value={data.last_played} sub={agoText(data.last_played)} />
@@ -710,6 +727,7 @@ function TrackView({
       <div style={{ display: "flex", gap: "1rem 2rem", flexWrap: "wrap", margin: "1.2rem 0" }}>
         <Stat title="Scrobbles" value={head.scrobbles} />
         <Stat title="Time" value={fmtHM(head.seconds)} />
+        <RankStats rank={head.rank} noun="곡" />
         <Stat title="First" value={head.first_played} sub={agoText(head.first_played)} />
         <Stat title="Last" value={head.last_played} sub={agoText(head.last_played)} />
       </div>

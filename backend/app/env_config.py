@@ -7,14 +7,15 @@ ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
 
 # Apple Music 개인정보 내보내기 폴더에서 앱이 읽는 파일 (없어도 앱은 Last.fm 데이터만으로 동작하고, 해당 기능만 건너뛴다)
 APPLE_FILES = {
-    "play_activity": "Apple Music Play Activity.csv",              # 가짜/중복 스크로블 판정
-    "daily_tracks": "Apple Music - Play History Daily Tracks.csv",  # 빈 아티스트 채우기
-    "library_xml": "전체.xml",                                       # 곡 길이 조회
+    "play_activity": ["Apple Music Play Activity.csv"],                                    # 가짜/중복 스크로블 판정
+    "library_tracks": ["Apple Music Library Tracks.json.zip", "Apple Music Library Tracks.json"],   # 보관함 곡 목록: 정확한 곡 길이
+    "daily_tracks": ["Apple Music - Play History Daily Tracks.csv"],                      # 빈 아티스트 채우기
+    "library_xml": ["전체.xml"],                                                            # 음악 앱에서 내보낸 보관함: 곡 길이·아티스트 보강
 }
 
 
 def _apple_files_in(folder: Path) -> dict[str, bool]:
-    return {key: (folder / name).exists() for key, name in APPLE_FILES.items()}
+    return {key: any((folder / name).exists() for name in names) for key, names in APPLE_FILES.items()}
 
 
 def resolve_apple_dir(raw: str) -> Path | None:
@@ -61,7 +62,7 @@ def save_config(api_key: str | None, username: str | None, apple_dir: str | None
     if apple_dir is not None and apple_dir.strip():
         resolved = resolve_apple_dir(apple_dir)
         if resolved is None:
-            names = ", ".join(APPLE_FILES.values())
+            names = ", ".join(n for v in APPLE_FILES.values() for n in v)
             raise ValueError(f"Apple Music 폴더를 찾지 못했어요. 폴더가 있는지, 안에 다음 파일 중 하나가 있는지 확인하세요: {names}")
 
     if not ENV_PATH.exists():

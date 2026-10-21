@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArtistPicker } from "./ArtistMerge";
+import { TitlePairing } from "./TitlePairing";
 import { BASE_URL } from "./config";
 import { CAT } from "./theme";
 
@@ -10,14 +11,16 @@ type Kind = "album" | "track";
 type Title = { title: string; A: number; L: number; total: number };
 type Stats = { title: string; A: number; L: number; total: number };
 type Preview = { variant: Stats; canonical: Stats; suggest_swap: boolean; collisions: number; error: string | null };
+type MergedArtist = { artist: string; merged_from: string[]; albums: number; track_albums: number };
 type Rule = { kind: Kind; artist: string; variant: string; canonical: string; pending: boolean; restorable: number };
 
 const NOUN: Record<Kind, string> = { album: "앨범", track: "곡" };
 const label = (t: Title) => `${t.title}  (Apple ${t.A.toLocaleString()} · Last.fm ${t.L.toLocaleString()})`;
 const src = (s: Stats) => `${s.total.toLocaleString()}행 (Apple ${s.A.toLocaleString()} · Last.fm ${s.L.toLocaleString()})`;
 
-export function MergeTitles({ kind }: { kind: Kind }) {
-  const [artist, setArtist] = useState("");
+export function MergeTitles({ kind, initialArtist = "", onOtherKind }: { kind: Kind; initialArtist?: string; onOtherKind?: (k: Kind, artist: string) => void }) {
+  const [artist, setArtist] = useState(initialArtist);
+  const [mode, setMode] = useState<"pair" | "single">("pair");      // 짝짓기(여러 개를 한 번에, 추천) / 하나씩
   const [titles, setTitles] = useState<Title[]>([]);
   const [variant, setVariant] = useState("");
   const [canonical, setCanonical] = useState("");
@@ -25,6 +28,17 @@ export function MergeTitles({ kind }: { kind: Kind }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [rules, setRules] = useState<Rule[]>([]);
+
+  // 내가 이름을 합친 아티스트: 눌러서 바로 고른다 (짝짓기가 남은 개수 표시)
+  const [mergedArtists, setMergedArtists] = useState<MergedArtist[]>([]);
+  const loadMerged = useCallback(() => {
+    fetch(`${BASE_URL}/api/title-merge/merged-artists`)
+      .then((r) => r.json())
+      .then((d) => setMergedArtists((d.artists ?? []) as MergedArtist[]))
+      .catch(() => {});
+  }, []);
+  useEffect(loadMerged, [loadMerged]);
+  const remaining = (m: MergedArtist) => (kind === "album" ? m.albums : m.track_albums);
 
   const loadRules = useCallback(() => {
     fetch(`${BASE_URL}/api/title-merge/rules`)
@@ -92,6 +106,7 @@ export function MergeTitles({ kind }: { kind: Kind }) {
         setMessage(`합쳤어요: ‘${res.variant}’ → ‘${res.canonical}’ (${res.applied_rows.toLocaleString()}행${res.backup ? ` · 백업 ${res.backup}` : ""})`);
         loadTitles(artist.trim());
         loadRules();
+        loadMerged();
       }
     } catch (e) {
       setMessage(`실패: ${(e as Error).message}`);
@@ -109,6 +124,7 @@ export function MergeTitles({ kind }: { kind: Kind }) {
       if (res.error) setMessage(`실패: ${res.error}`);
       else setMessage(`되돌렸어요: ‘${res.canonical}’ → ‘${res.variant}’ (${res.restored_rows.toLocaleString()}행 복원${res.backup ? ` · 백업 ${res.backup}` : ""})`);
       loadRules();
+      loadMerged();
       if (artist.trim()) loadTitles(artist.trim());
     } catch (e) {
       setMessage(`실패: ${(e as Error).message}`);
@@ -127,13 +143,57 @@ export function MergeTitles({ kind }: { kind: Kind }) {
         통일 표기는 Last.fm 표기(Last.fm 행이 많은 쪽)를 기본으로 골라 두고, 합치면 규칙이 저장돼서 새로고침 때 같은 제목의 새 기록도 자동으로 합쳐집니다.
       </p>
 
+      {mergedArtists.length > 0 && (
+        <div style={{ margin: "1rem 0 0" }}>
+          <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#999", marginBottom: 6 }}>내가 이름을 합친 아티스트 (눌러서 선택)</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[...mergedArtists]
+              .sort((x, y) => remaining(y) - remaining(x) || x.artist.localeCompare(y.artist))
+              .map((m) => {
+                const n = remaining(m);
+                const active = artist.trim() === m.artist;
+                return (
+                  <button
+                    key={m.artist}
+                    onClick={() => setArtist(m.artist)}
+                    title={`${m.merged_from.join(", ")} → ${m.artist}`}
+                    style={{
+                      padding: "0.25rem 0.8rem",
+                      borderRadius: 999,
+                      fontSize: "0.85rem",
+                      fontWeight: active ? 700 : 400,
+                      border: active ? `2px solid ${color}` : "1px solid #666",
+                      opacity: n === 0 && !active ? 0.55 : 1,
+                    }}
+                  >
+                    {m.artist} <span style={{ color: n ? color : "#999" }}>{n ? `· ${NOUN[kind]} ${n}` : "· 완료"}</span>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      )}
       <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", margin: "1rem 0" }}>
-        <ArtistPicker label="아티스트" value={artist} onChange={setArtist} />
+        <ArtistPicker label="다른 아티스트는 직접 검색" value={artist} onChange={setArtist} />
       </div>
-      {artist.trim() && titles.length === 0 && <p style={{ color: "#999", fontSize: "0.9rem" }}>이 아티스트의 {NOUN[kind]} 기록이 없어요. 목록에서 아티스트를 골라 보세요.</p>}
-      {titles.length === 1 && <p style={{ color: "#999", fontSize: "0.9rem" }}>{NOUN[kind]} 표기가 하나뿐이라 합칠 게 없어요.</p>}
+      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+        {([["pair", "짝짓기 (여러 개 한 번에)"], ["single", "하나씩"]] as const).map(([m, text]) => (
+          <button key={m} onClick={() => setMode(m)} style={{ padding: "0.3rem 0.9rem", fontWeight: mode === m ? 700 : 400, border: mode === m ? "2px solid #8884d8" : "1px solid #666" }}>
+            {text}
+          </button>
+        ))}
+        {onOtherKind && artist.trim() && (
+          <button onClick={() => onOtherKind(kind === "album" ? "track" : "album", artist.trim())} style={{ padding: "0.3rem 0.9rem", marginLeft: "auto" }}>
+            {kind === "album" ? "곡 짝짓기로 →" : "← 앨범 짝짓기로"}
+          </button>
+        )}
+      </div>
 
-      {titles.length >= 2 && (
+      {mode === "pair" && <TitlePairing kind={kind} artist={artist} onDone={() => { loadRules(); loadMerged(); }} />}
+      {mode === "single" && artist.trim() && titles.length === 0 && <p style={{ color: "#999", fontSize: "0.9rem" }}>이 아티스트의 {NOUN[kind]} 기록이 없어요. 목록에서 아티스트를 골라 보세요.</p>}
+      {mode === "single" && titles.length === 1 && <p style={{ color: "#999", fontSize: "0.9rem" }}>{NOUN[kind]} 표기가 하나뿐이라 합칠 게 없어요.</p>}
+
+      {mode === "single" && titles.length >= 2 && (
         <div style={{ border: "1px solid rgba(128,128,128,0.3)", borderRadius: 10, padding: "1rem 1.2rem", marginBottom: "1rem" }}>
           <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
             <div style={{ flex: "1 1 280px" }}>

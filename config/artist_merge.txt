@@ -1,3 +1,12 @@
 # normalize_artists.py 가 철자 규칙과 상관없이 합칠 아티스트: 변형 -> 통일 이름 (한 줄에 하나)
 # 통일 이름은 Last.fm 이 쓰는 표기로 적는다. 데이터에 두 이름이 모두 있을 때만 적용된다.
 Parannoul -> 파란노을
+Kim Sawol -> 김사월
+Sister's Barbershop -> 언니네 이발관
+찰스 밍거스 -> Charles Mingus
+Silica Gel -> 실리카겔
+NewJeans -> 뉴진스
+Jannabi -> 잔나비
+Kim Hyun Shik -> 김현식
+Beenzino -> 빈지노
+HYUKOH -> 혁오

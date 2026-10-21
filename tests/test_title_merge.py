@@ -13,7 +13,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from app.analysis.title_merge import add_rule, load_rules, preview, restorable_rows, restore_rules, titles_of, undo_merge  # noqa: E402
+from app.analysis.title_merge import add_rule, album_pairing, artist_album_pairing, merged_artist_overview, bulk_check, load_rules, preview, restorable_rows, restore_rules, titles_of, undo_merge, unpaired_albums  # noqa: E402
 from normalize_titles import apply_manual_title_merges, build_title_mapping, load_manual_title_merges  # noqa: E402
 
 HEADER = ["uts", "utc_time", "artist", "album", "track", "source"]
@@ -143,6 +143,88 @@ class UndoTest(unittest.TestCase):
 
     def test_undo_track(self):
         self.run_undo("track")
+
+
+def album_frame():
+    out = []
+    n = [0]
+
+    def add(count, album, track, source, artist="김사월"):
+        for _ in range(count):
+            n[0] += 1
+            out.append({"uts": str(5000 + n[0]), "utc_time": f"t{n[0]}", "artist": artist, "album": album, "track": track, "source": source})
+
+    add(4, "로맨스", "Orange", "A")        # 영문(Apple) 제목들
+    add(3, "로맨스", "Prague", "A")
+    add(2, "로맨스", "We", "A")
+    add(1, "로맨스", "오렌지", "L")        # 한글(Last.fm) 제목들
+    add(1, "로맨스", "프라하", "L")
+    add(1, "로맨스", "우리", "L")
+    add(1, "로맨스", "키스", "L")
+    add(3, "Done", "Same", "A")
+    add(1, "Done", "Same", "L")            # 이미 한 제목으로 맞춰진 앨범
+    return pd.DataFrame(out)
+
+
+DUR = {("김사월", "Orange"): 179, ("김사월", "오렌지"): 180, ("김사월", "Prague"): 151, ("김사월", "프라하"): 151, ("김사월", "We"): 163, ("김사월", "우리"): 300}
+
+
+class PairingTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.rules = Path(self.tmp.name) / "title_merge.txt"
+        self.df = album_frame()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_only_albums_with_unpaired_titles_on_both_sides(self):
+        albums = unpaired_albums(self.df, "김사월")
+        self.assertEqual([a["album"] for a in albums], ["로맨스"])
+        self.assertEqual((albums[0]["a_only"], albums[0]["l_only"]), (3, 4))
+
+    def test_pairing_suggests_only_unique_duration_matches(self):
+        r = album_pairing(self.df, "김사월", "로맨스", lambda a, t: DUR.get((a, t)))
+        left = {x["title"]: x for x in r["left"]}
+        self.assertEqual([x["title"] for x in r["left"]], ["Orange", "Prague", "We"])          # 많이 들은 순
+        self.assertEqual(left["Orange"]["suggestion"]["title"], "오렌지")                       # 179 vs 180 → ±2초
+        self.assertEqual(left["Prague"]["suggestion"]["title"], "프라하")
+        self.assertIsNone(left["We"]["suggestion"])                                            # 163 vs 300 → 불일치
+        self.assertEqual({x["title"] for x in r["right"]}, {"오렌지", "프라하", "우리", "키스"})
+
+    def test_no_duration_means_no_suggestion(self):
+        r = album_pairing(self.df, "김사월", "로맨스", lambda a, t: None)
+        self.assertTrue(all(x["suggestion"] is None for x in r["left"]))
+
+    def test_bulk_check_skips_bad_pairs_with_reasons(self):
+        pairs = [
+            {"variant": "Orange", "canonical": "오렌지"},
+            {"variant": "Prague", "canonical": "프라하"},
+            {"variant": "Prague", "canonical": "키스"},          # 같은 곡 두 번
+            {"variant": "We", "canonical": "Orange"},             # 통일 표기(Orange)가 다른 쌍의 변형
+            {"variant": "Nope", "canonical": "오렌지"},           # 기록에 없음
+        ]
+        ok, skipped = bulk_check(self.df, "김사월", pairs, self.rules)
+        self.assertEqual([(p["variant"], p["rows"]) for p in ok], [("Orange", 4), ("Prague", 3)])
+        reasons = {s["variant"]: s["reason"] for s in skipped}
+        self.assertIn("두 번", reasons["Prague"])
+        self.assertIn("없는", reasons["Nope"])
+        self.assertIn("다른 곡", reasons["We"])
+
+    def test_merged_artist_overview_counts_remaining_pairing(self):
+        df = pd.concat([self.df, pd.DataFrame([{"uts": "9", "utc_time": "t", "artist": "김사월", "album": "Romance", "track": "Orange", "source": "A"}, {"uts": "10", "utc_time": "t", "artist": "김사월", "album": "Heaven", "track": "x", "source": "L"}])])
+        out = merged_artist_overview(df, {"Kim Sawol": "김사월", "Ghost": "없는 아티스트"})
+        self.assertEqual([o["artist"] for o in out], ["김사월"])           # 기록에 없는 통일 이름은 뺀다
+        self.assertEqual(out[0]["merged_from"], ["Kim Sawol"])
+        self.assertEqual((out[0]["albums"], out[0]["track_albums"]), (1, 1))   # Romance(A만) 1개, 곡 짝짓기할 앨범 로맨스 1개
+
+    def test_album_pairing_and_bulk_for_albums(self):
+        df = pd.concat([self.df, pd.DataFrame([{"uts": "9", "utc_time": "t", "artist": "김사월", "album": "Romance", "track": "Orange", "source": "A"}, {"uts": "10", "utc_time": "t", "artist": "김사월", "album": "Heaven", "track": "x", "source": "L"}])])
+        r = artist_album_pairing(df, "김사월")
+        self.assertEqual({a["title"] for a in r["left"]}, {"Romance"})
+        self.assertIn("Heaven", {a["title"] for a in r["right"]})
+        ok, skipped = bulk_check(df, "김사월", [{"variant": "Romance", "canonical": "Heaven"}], self.rules, "album")
+        self.assertEqual((len(ok), skipped), (1, []))
 
 
 if __name__ == "__main__":

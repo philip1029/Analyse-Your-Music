@@ -1,6 +1,7 @@
 # normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기 규칙 + config/artist_merge.txt 수동 목록)
 Angine de poitrine -> Angine de Poitrine
 Apistat Commander -> apistat commander
+Beenzino -> 빈지노
 Biglietto per l'inferno -> Biglietto per l'Inferno
 Christtt -> christtt
 DJ Spooky That Subliminal Kid -> DJ Spooky that Subliminal Kid
@@ -9,16 +10,23 @@ Ecco2k -> Ecco2K
 Ex Eye -> EX EYE
 Explosions In the Sky -> Explosions in the Sky
 Goreshit -> goreshit
+HYUKOH -> 혁오
 Have A Nice Life -> Have a Nice Life
+Jannabi -> 잔나비
+Kim Hyun Shik -> 김현식
+Kim Sawol -> 김사월
 LOREN & MASH -> Loren & Mash
 Lia & VISUAL ARTS / Key -> LIA & VISUAL ARTS / Key
 M1dy -> m1dy
 MIDORi -> Midori
 MONOGATARI Series -> Monogatari Series
+NewJeans -> 뉴진스
 OMA -> Oma
 Parannoul -> 파란노을
 Planning For Burial -> Planning for Burial
 Rovo -> ROVO
+Silica Gel -> 실리카겔
+Sister's Barbershop -> 언니네 이발관
 System Of A Down -> System of a Down
 TODAY IS THE DAY -> Today Is The Day
 Van Der Graaf Generator -> Van der Graaf Generator
@@ -32,3 +40,4 @@ snafu -> Snafu
 朝比奈みくる (CV.後藤邑子) -> 朝比奈みくる (cv.後藤邑子)
 涼宮ハルヒ (CV.平野 綾) -> 涼宮ハルヒ(cv.平野綾)
 涼宮ハルヒ(CV.平野綾) -> 涼宮ハルヒ(cv.平野綾)
+찰스 밍거스 -> Charles Mingus

@@ -57,7 +57,7 @@ type View =
   | { type: "list"; category: Category }
   | { type: "covers" }
   | { type: "artists" }
-  | { type: "merge"; target?: "artist" | "album" | "track" }
+  | { type: "merge"; target?: "artist" | "album" | "track"; artist?: string }
   | { type: "artist"; name: string }
   | { type: "album"; name: string; artist: string | null }
   | { type: "track"; name: string; artist: string | null; album: string | null };   // album: 이 앨범에서 들은 기록만 (앨범 페이지에서 열 때)
@@ -283,7 +283,7 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
               return (
                 <button
                   key={k}
-                  onClick={() => setStack([{ type: "merge", target: k }])}
+                  onClick={() => setStack([{ type: "merge", target: k, artist: view.artist }])}
                   style={{
                     padding: "0.3rem 0.9rem",
                     fontWeight: active ? 700 : 400,
@@ -298,7 +298,16 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
               );
             })}
           </div>
-          {(view.target ?? "artist") === "artist" ? <MergeArtists /> : <MergeTitles key={view.target} kind={view.target as "album" | "track"} />}
+          {(view.target ?? "artist") === "artist" ? (
+            <MergeArtists onPair={(a) => setStack([{ type: "merge", target: "album", artist: a }])} />
+          ) : (
+            <MergeTitles
+              key={`${view.target}|${view.artist ?? ""}`}
+              kind={view.target as "album" | "track"}
+              initialArtist={view.artist ?? ""}
+              onOtherKind={(k, a) => setStack([{ type: "merge", target: k, artist: a }])}
+            />
+          )}
         </>
       )}
       {view.type === "artist" && <ArtistView key={view.name} name={view.name} query={query} onOpen={openItem} />}

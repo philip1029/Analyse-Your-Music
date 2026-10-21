@@ -164,3 +164,94 @@ def undo_merge(data_dir: Path, rules_path: Path, kind: str, artist: str, variant
     pp.write_csv_atomic(csv_path, header, rows)
     pp.write_csv_atomic(Path(data_dir) / "title_normalize_log.csv", LOG_FIELDS, log + new_log)
     return {**base, "restored_rows": len(new_log), "backup": backup.name}
+
+
+DURATION_TOLERANCE = 2   # 초: 이 안이면 같은 곡 길이로 본다
+
+
+def unpaired_albums(df: pd.DataFrame, artist: str) -> list[dict]:
+    """그 아티스트의 앨범 중 Apple 쪽에만 있는 곡 제목과 Last.fm 쪽에만 있는 곡 제목이 모두 있는(짝지을 만한) 앨범."""
+    rows = df[(df["artist"] == artist) & (df["album"] != "") & (df["track"] != "")]
+    out = []
+    for album, g in rows.groupby("album"):
+        per = g.groupby("track")["source"].agg(A=lambda s: int((s == "A").sum()), L=lambda s: int((s == "L").sum()))
+        a_only, l_only = int((per["L"] == 0).sum()), int((per["A"] == 0).sum())
+        if a_only and l_only:
+            out.append({"album": album, "a_only": a_only, "l_only": l_only, "plays": int(len(g))})
+    return sorted(out, key=lambda x: (-min(x["a_only"], x["l_only"]), -x["plays"], x["album"]))
+
+
+def album_pairing(df: pd.DataFrame, artist: str, album: str, get_duration) -> dict:
+    """
+    한 앨범의 곡 짝짓기 재료. left = Apple 쪽에만 있는 제목(합쳐질 후보), right = Last.fm 기록이 있는 제목(남길 표기 후보).
+    곡 길이를 둘 다 알고(±DURATION_TOLERANCE초) 양쪽에서 유일하게 맞는 쌍만 suggestion 으로 미리 채운다 (애매하면 비워 둔다).
+    """
+    rows = df[(df["artist"] == artist) & (df["album"] == album) & (df["track"] != "")]
+    titles = []
+    for t, g in rows.groupby("track"):
+        src = g["source"].value_counts()
+        titles.append({"title": t, "A": int(src.get("A", 0)), "L": int(src.get("L", 0)), "duration": get_duration(artist, t)})
+    left = sorted((t for t in titles if t["L"] == 0), key=lambda t: (-t["A"], t["title"]))
+    right = sorted((t for t in titles if t["L"] > 0), key=lambda t: (-t["L"], t["title"]))
+
+    def near(a, b):
+        return a["duration"] is not None and b["duration"] is not None and abs(a["duration"] - b["duration"]) <= DURATION_TOLERANCE
+
+    for l in left:
+        cands = [r for r in right if near(l, r)]
+        l["suggestion"] = None
+        if len(cands) == 1 and sum(1 for x in left if near(x, cands[0])) == 1:
+            l["suggestion"] = {"title": cands[0]["title"], "reason": "곡 길이 일치"}
+    return {"artist": artist, "album": album, "left": left, "right": right}
+
+
+def bulk_check(df: pd.DataFrame, artist: str, pairs: list[dict], rules_path: Path, kind: str = "track") -> tuple[list[dict], list[dict]]:
+    """여러 쌍(곡 또는 앨범)을 한꺼번에 점검한다. 반환: (합칠 수 있는 쌍[{variant, canonical, rows}], 건너뛴 쌍[{variant, canonical, reason}])."""
+    ok, skipped, seen = [], [], set()
+    variants = {p["variant"].strip() for p in pairs}
+    for p in pairs:
+        v, c = p["variant"].strip(), p["canonical"].strip()
+        pv = preview(df, kind, artist, v, c, rules_path)
+        if v in seen:
+            reason = f"같은 {KINDS[kind]}이(가) 두 번 들어 있어요."
+        elif c in variants:
+            reason = f"‘{c}’ 는 이번에 같이 합치는 다른 {KINDS[kind]}이라 통일 표기가 될 수 없어요."
+        else:
+            reason = pv["error"]
+        if reason:
+            skipped.append({"variant": v, "canonical": c, "reason": reason})
+        else:
+            seen.add(v)
+            ok.append({"variant": v, "canonical": c, "rows": pv["variant"]["total"]})
+    return ok, skipped
+
+
+def artist_album_pairing(df: pd.DataFrame, artist: str) -> dict:
+    """
+    한 아티스트의 앨범 짝짓기 재료. left = Apple 쪽에만 있는 앨범 표기, right = Last.fm 기록이 있는 앨범 표기.
+    앨범 길이 정보가 없어서 미리 채우는 추천은 없다 (곡 짝짓기를 먼저 끝내면 앨범 안 곡이 같은지로 판단할 수 있지만 지금은 직접 고른다).
+    """
+    out = []
+    for a in titles_of(df, artist, "album"):
+        out.append({"title": a["title"], "A": a["A"], "L": a["L"], "suggestion": None})
+    left = [a for a in out if a["L"] == 0]
+    right = [a for a in out if a["L"] > 0]
+    return {"artist": artist, "left": left, "right": right}
+
+
+def merged_artist_overview(df: pd.DataFrame, rules: dict[str, str]) -> list[dict]:
+    """
+    아티스트 병합 규칙(변형 -> 통일 이름)의 통일 이름별로, 앨범·곡 짝짓기가 아직 남은 개수.
+    albums = Apple 쪽에만 있는 앨범 표기 수(짝지을 Last.fm 앨범이 있을 때), track_albums = 곡을 짝지을 만한 앨범 수.
+    """
+    merged: dict[str, list[str]] = {}
+    for variant, canonical in rules.items():
+        merged.setdefault(canonical, []).append(variant)
+    out = []
+    for artist, variants in merged.items():
+        if not (df["artist"] == artist).any():
+            continue
+        pairing = artist_album_pairing(df, artist)
+        albums = len(pairing["left"]) if pairing["right"] else 0
+        out.append({"artist": artist, "merged_from": sorted(variants), "albums": albums, "track_albums": len(unpaired_albums(df, artist))})
+    return sorted(out, key=lambda x: (-(x["albums"] + x["track_albums"]), x["artist"]))

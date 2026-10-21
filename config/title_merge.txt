@@ -1,0 +1,71 @@
+# 직접 합치는 곡/앨범 제목: 곡|앨범 :: 아티스트 :: 변형 -> 통일 표기 (한 줄에 하나)
+album :: 김사월 :: Romance -> 로맨스
+album :: 잔나비 :: Legend -> 전설
+album :: 혁오 :: through love - EP -> 사랑으로 - EP
+album :: 혁오 :: 24 : How to find true love and happiness - EP -> 24 : How To Find True Love and Happiness - EP
+album :: 언니네 이발관 :: Most Ordinary Existence -> 가장 보통의 존재
+album :: 언니네 이발관 :: Reminiscences -> 후일담
+track :: 언니네 이발관 :: Heart with No Purity -> 순수함이라고 없는 정
+track :: 언니네 이발관 :: Paradise Lost -> 실락원
+track :: 언니네 이발관 :: Yuri -> 유리
+track :: 언니네 이발관 :: Yesterday I Met a Shooting Star -> 어제 만난 슈팅스타
+track :: 언니네 이발관 :: Dream Pop Song -> 꿈의 팝송
+track :: 언니네 이발관 :: Nameless Taxi -> 무명택시
+track :: 언니네 이발관 :: Star of a Life -> 인생의 별
+track :: 언니네 이발관 :: Inshallah -> 인샬라
+track :: 언니네 이발관 :: Plaintive Confession -> 청승고백
+track :: 언니네 이발관 :: Your Secret Garden -> 너의 비밀의 화원
+track :: 언니네 이발관 :: What Is Next Song? -> 다음 곡은 뭐죠?
+track :: 언니네 이발관 :: One Given Day -> 어떤 날
+track :: 언니네 이발관 :: Beautiful Thing -> 아름다운 것
+track :: 언니네 이발관 :: Most Ordinary Existence -> 가장 보통의 존재
+track :: 언니네 이발관 :: Gently, Gently -> 산들산들
+track :: 언니네 이발관 :: Are You Turning into a Devil? -> 너는 악마가 되어가고 있는가?
+track :: 언니네 이발관 :: Life Is a Taboo -> 인생은 금물
+track :: 언니네 이발관 :: Unexpected Truth -> 의외의 사실
+track :: 언니네 이발관 :: Alibi -> 알리바이
+track :: 언니네 이발관 :: Tiny Heart -> 작은마음
+track :: 언니네 이발관 :: The Truth Over 100 Years -> 100년 동안의 진심
+track :: 언니네 이발관 :: I Am -> 나는
+track :: 파란노을 :: Beautiful World -> 아름다운 세상
+track :: 파란노을 :: White Ceiling -> 흰천장
+track :: 파란노을 :: Analog Sentimentalism -> 아날로그 센티멘탈리즘
+track :: 파란노을 :: Excuse -> 변명
+track :: 파란노을 :: Extra Story -> 엑스트라 일대기
+track :: 파란노을 :: Youth Rebellion -> 청춘반란
+track :: 파란노을 :: Age of Fluctuation -> 격변의 시대
+track :: 파란노을 :: Polaris -> 북극성
+track :: 파란노을 :: Insomnia -> 불면증
+track :: 파란노을 :: We Shine at Night -> 우리는 밤이 되면 빛난다
+track :: 파란노을 :: Arrival -> 도착
+track :: 파란노을 :: Sketchbook -> 스케치북
+track :: 파란노을 :: Blossom -> 개화
+track :: 파란노을 :: Meaning of Change -> 변해가는 의미
+track :: 파란노을 :: Today's Sky is Clear -> 오늘의 하늘은 맑음
+track :: 김사월 :: Prague -> 프라하
+track :: 김사월 :: Reality Bites -> 세상에게
+track :: 김사월 :: Let It Die -> 죽어
+track :: 김사월 :: Orange -> 오렌지
+track :: 김사월 :: We -> 우리
+track :: 김사월 :: You Will Miss Me -> 그리워해봐
+track :: 김사월 :: Your Side -> 옆
+track :: 김사월 :: TT -> 엉엉
+track :: 빈지노 :: Dope As -> Dope As (Interlude)
+track :: 빈지노 :: Sanso -> Sanso (Interlude)
+track :: 빈지노 :: Stinky Kiss -> Stinky Kiss (Intro)
+track :: 빈지노 :: Just One Day -> 단 하루
+track :: 파란노을 :: Painless -> 고통없이
+track :: 파란노을 :: Lights Off Repentance -> 암전고백
+track :: 파란노을 :: A Lot Can Happen -> 주마등
+track :: 파란노을 :: Gold River -> 황금빛 강
+track :: 파란노을 :: Fantasy -> 환상
+track :: 파란노을 :: Backwards -> 시계
+track :: 파란노을 :: Meaning of Regret -> 후회하는 의미
+track :: 파란노을 :: I Can Feel My Heart Touching You -> I Can Feel My Heart Touching You (Live)
+track :: 파란노을 :: 아름다운 세상 -> 아름다운 세상 (Live)
+track :: 파란노을 :: 흰천장 -> 흰천장 (Live)
+track :: 파란노을 :: 아날로그 센티멘탈리즘 -> 아날로그 센티멘탈리즘 (Live)
+track :: 파란노을 :: Imagination -> Imagination (Live)
+track :: 파란노을 :: Into the Endless Night -> Into the Endless Night (Live)
+track :: 파란노을 :: 북극성 -> 북극성 (Live)
+track :: 파란노을 :: Soft Bruise -> 그곳에는 낭만이 있다 (Live)

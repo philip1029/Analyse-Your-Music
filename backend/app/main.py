@@ -723,6 +723,80 @@ def title_merge_apply(body: TitleMergeBody):
     return {"applied_rows": result.get(field, 0), "backup": result.get("backup"), "kind": body.kind, "artist": body.artist, "variant": body.variant, "canonical": body.canonical}
 
 
+@app.get("/api/title-merge/albums")
+def title_merge_albums(artist: str = ""):
+    """짝지을 만한 앨범 목록 (Apple 쪽에만 있는 곡 제목과 Last.fm 쪽에만 있는 곡 제목이 모두 있는 앨범)."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return {"artist": artist, "albums": title_merge.unpaired_albums(df, artist)}
+
+
+@app.get("/api/title-merge/album-pairing")
+def title_merge_album_pairing(artist: str = "", album: str = ""):
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return title_merge.album_pairing(df, artist, album, durations.get)
+
+
+class TitlePair(BaseModel):
+    variant: str
+    canonical: str
+
+
+class TitleBulkBody(BaseModel):
+    artist: str
+    pairs: list[TitlePair]
+    kind: str = "track"
+
+
+@app.get("/api/title-merge/merged-artists")
+def title_merge_merged_artists():
+    """내가 이름을 합친 아티스트(통일 이름)와 그 앨범·곡 짝짓기가 남은 개수."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return {"artists": title_merge.merged_artist_overview(df, artist_merge.load_rules(ARTIST_MERGE_FILE))}
+
+
+@app.get("/api/title-merge/artist-albums")
+def title_merge_artist_albums(artist: str = ""):
+    """한 아티스트의 앨범 표기 짝짓기 재료 (Apple 쪽에만 있는 앨범 / Last.fm 앨범)."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return title_merge.artist_album_pairing(df, artist)
+
+
+@app.post("/api/title-merge/bulk")
+def title_merge_bulk(body: TitleBulkBody):
+    """한 아티스트의 곡 또는 앨범 여러 쌍을 한꺼번에 합친다 (짝짓기 화면). 규칙을 모두 남기고 normalize_titles.py 를 한 번 실행한다. 합칠 수 없는 쌍은 사유와 함께 건너뛴다."""
+    if body.kind not in ("track", "album"):
+        return {"error": "kind 는 track 또는 album 이어야 합니다."}
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    ok, skipped = title_merge.bulk_check(df, body.artist, [p.model_dump() for p in body.pairs], TITLE_MERGE_FILE, body.kind)
+    if not ok:
+        return {"applied_pairs": 0, "applied_rows": 0, "backup": None, "skipped": skipped}
+    script = Path(__file__).resolve().parent.parent.parent / "scripts" / "normalize_titles.py"
+    before = title_merge.add_rule(TITLE_MERGE_FILE, body.kind, body.artist, ok[0]["variant"], ok[0]["canonical"])
+    for p in ok[1:]:
+        title_merge.add_rule(TITLE_MERGE_FILE, body.kind, body.artist, p["variant"], p["canonical"])
+    try:
+        run = subprocess.run(["python3", str(script), "--apply", "--json"], capture_output=True, text=True, timeout=120)
+        json_lines = [ln for ln in run.stdout.splitlines() if ln.startswith("{")]
+        result = json.loads(json_lines[-1]) if run.returncode == 0 and json_lines else None
+    except Exception as e:  # noqa: BLE001
+        title_merge.restore_rules(TITLE_MERGE_FILE, before)
+        return {"error": f"병합 실행에 실패했어요: {e}"}
+    if result is None:
+        title_merge.restore_rules(TITLE_MERGE_FILE, before)
+        return {"error": f"병합 실행에 실패했어요: {(run.stderr or run.stdout)[-300:]}"}
+    return {"applied_pairs": len(ok), "applied_rows": sum(p["rows"] for p in ok), "backup": result.get("backup"), "skipped": skipped}
+
+
 @app.post("/api/title-merge/undo")
 def title_merge_undo(body: TitleMergeBody):
     try:

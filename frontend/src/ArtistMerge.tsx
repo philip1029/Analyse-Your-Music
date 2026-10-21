@@ -71,7 +71,7 @@ export function ArtistPicker({ label, value, onChange }: { label: string; value:
 
 const src = (s: Stats) => `${s.total.toLocaleString()}행 (Apple ${s.A.toLocaleString()} · Last.fm ${s.L.toLocaleString()})`;
 
-export function MergeArtists() {
+export function MergeArtists({ onPair }: { onPair?: (artist: string) => void }) {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const [keepFirst, setKeepFirst] = useState(false);      // true: 첫 번째 이름이 통일 이름
@@ -80,6 +80,7 @@ export function MergeArtists() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [rules, setRules] = useState<Rule[]>([]);
+  const [justMerged, setJustMerged] = useState<string | null>(null);   // 방금 합친 아티스트(통일 이름): 앨범·곡 짝짓기로 이어 가기
 
   const loadRules = useCallback(() => {
     fetch(`${BASE_URL}/api/artist-merge/rules`)
@@ -141,6 +142,7 @@ export function MergeArtists() {
       if (res.error) setMessage(`실패: ${res.error}`);
       else {
         setMessage(`합쳤어요: ‘${res.variant}’ → ‘${res.canonical}’ (${res.applied_rows.toLocaleString()}행${res.backup ? ` · 백업 ${res.backup}` : ""})`);
+        setJustMerged(res.canonical);
         setA("");
         setB("");
         setPrev(null);
@@ -208,6 +210,16 @@ export function MergeArtists() {
         </div>
       )}
       {message && <p style={{ margin: "0.5rem 0" }}>{message}</p>}
+      {justMerged && onPair && (
+        <div style={{ margin: "0.5rem 0 1rem", padding: "0.8rem 1rem", border: `1px solid ${CAT.artist.main}`, borderRadius: 10 }}>
+          <div style={{ fontSize: "0.9rem", marginBottom: "0.5rem" }}>
+            ‘{justMerged}’ 의 앨범·곡 제목도 영문/한글로 나뉘어 있을 수 있어요. 이어서 짝지어 합치세요.
+          </div>
+          <button onClick={() => onPair(justMerged)} style={{ padding: "0.4rem 1rem", fontWeight: 700 }}>
+            ‘{justMerged}’ 앨범·곡 짝짓기 →
+          </button>
+        </div>
+      )}
 
       {rules.length > 0 && (
         <>
@@ -221,6 +233,11 @@ export function MergeArtists() {
                 <span style={{ marginLeft: "auto", color: "#999", fontSize: "0.8rem", alignSelf: "center" }}>
                   {r.pending ? "아직 변형 이름 기록이 남아 있어요 (다음 새로고침 때 합쳐짐)" : `반영됨${r.restorable ? ` · ${r.restorable.toLocaleString()}행` : ""}`}
                 </span>
+                {onPair && (
+                  <button onClick={() => onPair(r.canonical)} style={{ padding: "0.2rem 0.8rem", fontSize: "0.85rem" }}>
+                    앨범·곡 짝짓기
+                  </button>
+                )}
                 <button onClick={() => undo(r)} disabled={busy} style={{ padding: "0.2rem 0.8rem", fontSize: "0.85rem" }}>
                   되돌리기
                 </button>

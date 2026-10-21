@@ -650,6 +650,8 @@ const handleCopyPrompt = () => {
     remote_message?: string;
   } | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
+  const [updateApplyMessage, setUpdateApplyMessage] = useState<string | null>(null);
 
   const buildQuery = useCallback(
     (extra: Record<string, string | number> = {}) => {
@@ -892,6 +894,27 @@ const handleCopyPrompt = () => {
       .finally(() => setLoadingDayDetail(false));
   };
 
+  const handleApplyUpdate = () => {
+    setApplyingUpdate(true);
+    setUpdateApplyMessage(null);
+
+    fetch(`${BASE_URL}/api/update-apply`, { method: "POST" })
+      .then((res) => res.json())
+      .then((data: { success: boolean; output: string }) => {
+        if (data.success) {
+          setUpdateApplyMessage("업데이트 완료! 서버가 자동으로 재시작됩니다. 잠시 후 새로고침됩니다...");
+          setTimeout(() => window.location.reload(), 3000);
+        } else {
+          setUpdateApplyMessage(`업데이트 실패: ${data.output}`);
+          setApplyingUpdate(false);
+        }
+      })
+      .catch((err) => {
+        setUpdateApplyMessage(`에러: ${err.message}`);
+        setApplyingUpdate(false);
+      });
+  };
+
   if (error) return <div>에러 발생: {error}</div>;
   if (!stats) return <div>불러오는 중...</div>;
 
@@ -914,12 +937,25 @@ const handleCopyPrompt = () => {
           }}
         >
           <span>
-            🔔 새 업데이트가 있어요{updateInfo.remote_message ? `: "${updateInfo.remote_message}"` : ""}. 터미널에서{" "}
-            <code>git pull origin main</code> 받고 서버를 재시작해주세요.
+            🔔 새 업데이트가 있어요{updateInfo.remote_message ? `: "${updateInfo.remote_message}"` : ""}.
+            {updateApplyMessage ? ` ${updateApplyMessage}` : ""}
           </span>
-          <button onClick={() => setUpdateDismissed(true)} style={{ padding: "0.3rem 0.6rem" }}>
-            닫기
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
+            <button
+              onClick={() => setUpdateDismissed(true)}
+              disabled={applyingUpdate}
+              style={{ padding: "0.3rem 0.6rem" }}
+            >
+              나중에 하기
+            </button>
+            <button
+              onClick={handleApplyUpdate}
+              disabled={applyingUpdate}
+              style={{ padding: "0.3rem 0.6rem", background: "#2563eb", color: "white" }}
+            >
+              {applyingUpdate ? "업데이트 중..." : "지금 하기"}
+            </button>
+          </div>
         </div>
       )}
 

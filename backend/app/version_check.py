@@ -88,3 +88,32 @@ def check_for_update() -> dict:
     }
     _cache, _cache_at = result, now
     return result
+
+
+def apply_update() -> dict:
+    """
+    git pull origin main을 실제로 실행한다. 충돌/네트워크 오류 등은 그대로
+    git의 출력(output)에 담아 반환하고, 예외를 던지지 않는다.
+    성공하면 check_for_update()의 캐시를 지워서 다음 조회 때 바로 최신 상태로 보이게 한다.
+    uvicorn은 --reload로 떠있으므로, pull로 백엔드 파일이 바뀌면 서버가 알아서 재시작된다.
+    """
+    global _cache
+
+    try:
+        result = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except Exception as e:
+        return {"success": False, "output": f"git pull 실행 실패: {e}"}
+
+    output = (result.stdout + result.stderr).strip()
+    success = result.returncode == 0
+
+    if success:
+        _cache = None
+
+    return {"success": success, "output": output}

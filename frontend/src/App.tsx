@@ -3,6 +3,7 @@ import { BASE_URL } from "./config";
 import { Library, type LibraryRequest, type LibraryTarget, type SortMode } from "./Library";
 import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
+import { DecadeCard } from "./DecadeCard";
 import { DiscoveryList } from "./DiscoveryList";
 import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
@@ -966,6 +967,13 @@ const handleCopyPrompt = () => {
           } else if (tagRes?.fetched) {
             parts.push(`아티스트 태그 ${tagRes.fetched}명 추가${tagRes.remaining ? ` · 남은 ${tagRes.remaining}명은 다음에` : ""}`);
           }
+          // 새 앨범 발매연도 조회 결과 (Music by decade)
+          const yearRes = data.album_years as { error?: string; found?: number; remaining?: number } | null | undefined;
+          if (yearRes?.error) {
+            parts.push(`앨범 연도 조회 실패: ${yearRes.error}`);
+          } else if (yearRes?.found) {
+            parts.push(`앨범 연도 ${yearRes.found}개 추가${yearRes.remaining ? ` · 남은 ${yearRes.remaining}개는 다음에` : ""}`);
+          }
           setRefreshMessage(
             `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
           );
@@ -1169,6 +1177,8 @@ const handleCopyPrompt = () => {
             timeSummary={timeSummary}
             isAllTime={!dateRange.start && !dateRange.end}
           />
+
+          <DecadeCard query={buildQuery} />
 
           {diversity && (
             <>

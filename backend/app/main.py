@@ -39,7 +39,8 @@ from app.analysis.taste import (
 )
 from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
-from app import apple_files
+from app import apple_files, album_years
+from app.analysis.decades import build_decades
 from app.env_config import get_config_status, save_config
 from app.deps_install import install_deps
 
@@ -55,6 +56,7 @@ app.add_middleware(
 )
 
 DATA_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+_year_lookup = album_years.AlbumYearLookup(DATA_DIR / album_years.CACHE_NAME)
 
 
 def load_csv_safely(path: Path) -> pd.DataFrame:
@@ -219,6 +221,40 @@ def time_summary_endpoint(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
     return time_summary(df)
+
+
+@app.get("/api/overview/decades")
+def overview_decades(start: str | None = None, end: str | None = None):
+    """Music by decade: 들은 앨범의 발매 연대별 스크로블·앨범·아티스트 수와 연도를 아는 비율(coverage)."""
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return build_decades(df, _year_lookup)
+
+
+ALBUM_YEAR_FILL_LIMIT = 25   # 한 번에 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 앨범당 1~2초)
+
+
+@app.post("/api/album-years/fill")
+def album_years_fill(count: int = ALBUM_YEAR_FILL_LIMIT):
+    """연도를 아직 모르는 앨범을 재생 많은 순으로 count개 조회해 data/album_years.json 에 채운다 (MusicBrainz 우선 · Apple 보조)."""
+    count = max(1, min(count, 60))
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    if not album_years.fill_lock.acquire(blocking=False):
+        return {"error": "이미 앨범 연도를 채우는 중이에요. 끝난 뒤에 다시 눌러 주세요."}
+    try:
+        cache_path = DATA_DIR / album_years.CACHE_NAME
+        cache = album_years.load_cache(cache_path)
+        apple = album_years.load_apple_years(os.environ.get("APPLE_ACTIVITY_DIR"))
+        stats = album_years.fill_years(
+            album_years.album_pairs(df), cache, album_years.MusicBrainzClient(), apple, album_years.load_overrides(), limit=count
+        )
+        album_years.save_cache(cache_path, cache)
+    finally:
+        album_years.fill_lock.release()
+    return stats
 
 
 @app.get("/api/listening/hourly")
@@ -445,6 +481,7 @@ def validate():
 
 TAG_FILL_LIMIT = 40   # 새로고침 한 번에 태그를 조회할 최대 아티스트 수
 FILL_LIMIT = 60   # 새로고침 한 번에 길이를 조회할 최대 곡 수
+ALBUM_YEAR_REFRESH_LIMIT = 20   # 새로고침 한 번에 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 시간이 걸린다)
 
 
 @app.post("/api/refresh")
@@ -572,7 +609,27 @@ def refresh_scrobbles():
         except Exception as e:  # noqa: BLE001
             tags_result = {"error": str(e)}
 
-    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "artists": artists_norm, "titles": titles, "durations": durations_result, "tags": tags_result}
+    # 새 앨범의 발매연도도 소량 채운다 (Music by decade). MusicBrainz 에 닿지 않아도 새로고침은 성공이고, 남은 앨범은 다음에 이어서 한다.
+    years_result = None
+    years_script = script_path.with_name("fill_album_years.py")
+    try:
+        years_run = subprocess.run(
+            ["python3", str(years_script), "--json", "--limit", str(ALBUM_YEAR_REFRESH_LIMIT)],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        if years_run.returncode == 0:
+            json_lines = [ln for ln in years_run.stdout.splitlines() if ln.startswith("{")]
+            years_result = json.loads(json_lines[-1]) if json_lines else None
+        else:
+            years_result = {"error": (years_run.stderr or years_run.stdout)[-300:]}
+    except subprocess.TimeoutExpired:
+        years_result = {"error": "앨범 연도 조회 시간 초과 (다음에 이어서 합니다)"}
+    except Exception as e:  # noqa: BLE001
+        years_result = {"error": str(e)}
+
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "artists": artists_norm, "titles": titles, "durations": durations_result, "tags": tags_result, "album_years": years_result}
 
 @app.get("/api/taste/evolution")
 def taste_evolution(

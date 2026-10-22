@@ -4,6 +4,7 @@ import { Library, type LibraryRequest, type LibraryTarget, type SortMode } from 
 import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
 import { DecadeCard } from "./DecadeCard";
+import { FunFactCard } from "./FunFactCard";
 import { DiscoveryList } from "./DiscoveryList";
 import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
@@ -1177,6 +1178,8 @@ const handleCopyPrompt = () => {
             timeSummary={timeSummary}
             isAllTime={!dateRange.start && !dateRange.end}
           />
+
+          <FunFactCard />
 
           <DecadeCard query={buildQuery} />
 

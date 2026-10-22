@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+from datetime import datetime
 import subprocess
 from pathlib import Path
 import pandas as pd
@@ -41,6 +42,7 @@ from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
 from app import apple_files, album_years
 from app.analysis.decades import build_decades
+from app.analysis.fun_facts import KST, build_facts
 from app.env_config import get_config_status, save_config
 from app.deps_install import install_deps
 
@@ -230,6 +232,23 @@ def overview_decades(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
     return build_decades(df, _year_lookup)
+
+
+_facts_cache: dict = {"key": None, "facts": []}
+
+
+@app.get("/api/overview/facts")
+def overview_facts():
+    """Overview 의 "Did you know?" 카드 후보 전부 (전체 기록 기준). 어느 것을 보여 줄지는 화면이 랜덤으로 고른다.
+    기록 파일이 바뀌거나 날짜가 바뀌기 전에는 다시 계산하지 않는다 (N년 전 오늘 같은 후보가 날짜에 따라 달라진다)."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    today = datetime.now(KST).date()
+    key = (_base_cache["sig"], today.isoformat())
+    if _facts_cache["key"] != key:
+        _facts_cache.update(key=key, facts=build_facts(df, today))
+    return {"facts": _facts_cache["facts"]}
 
 
 ALBUM_YEAR_FILL_LIMIT = 25   # 한 번에 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 앨범당 1~2초)

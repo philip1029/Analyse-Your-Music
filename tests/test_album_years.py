@@ -276,6 +276,30 @@ class LookupTest(unittest.TestCase):
         self.assertEqual(lookup.get("A", "B"), {"year": 1985, "src": "manual"})
 
 
+class LockTest(unittest.TestCase):
+    def test_second_acquire_fails_until_released(self):
+        lock = Path(tempfile.mkdtemp()) / ay.LOCK_NAME
+        self.assertTrue(ay.acquire_lock(lock))
+        self.assertFalse(ay.acquire_lock(lock))
+        ay.release_lock(lock)
+        self.assertTrue(ay.acquire_lock(lock))
+        ay.release_lock(lock)
+        ay.release_lock(lock)                                                           # 없는 잠금을 풀어도 오류 없음
+
+    def test_stale_lock_is_taken_over_but_touched_one_is_not(self):
+        import os
+        import time
+
+        lock = Path(tempfile.mkdtemp()) / ay.LOCK_NAME
+        self.assertTrue(ay.acquire_lock(lock))
+        old = time.time() - ay.LOCK_STALE_SEC - 10
+        os.utime(lock, (old, old))
+        self.assertTrue(ay.acquire_lock(lock))                                          # 죽은 프로세스가 남긴 잠금
+        os.utime(lock, (old, old))
+        ay.touch_lock(lock)                                                              # 진행 중이면 갱신해서 계속 유지
+        self.assertFalse(ay.acquire_lock(lock))
+
+
 class FakeLookup:
     def __init__(self, table):
         self.table = table

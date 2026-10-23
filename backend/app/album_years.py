@@ -19,7 +19,6 @@ import json
 import os
 import re
 import tempfile
-import threading
 import time
 import unicodedata
 import zipfile
@@ -42,7 +41,8 @@ SEARCH_LIMIT = 10
 MIN_YEAR = 1900
 MAX_TRANSIENT_RUN = 3        # 일시적 오류가 이만큼 연달아 나면 이번 조회를 멈춘다
 
-fill_lock = threading.Lock()  # 같은 캐시 파일을 두 곳에서 동시에 채우지 않게 한다 (API 와 스크립트가 따로 돌 때는 호출하는 쪽이 책임)
+LOCK_NAME = "album_years.lock"
+LOCK_STALE_SEC = 900         # 이 시간 동안 갱신되지 않은 잠금은 죽은 프로세스가 남긴 것으로 보고 넘겨받는다
 
 # 원래 앨범 연도를 바꾸지 않는 꼬리표: 리마스터·믹스·에디션 등. (Live 는 다른 음반이므로 떼지 않는다)
 _TAGS = r"(?:remaster(?:ed)?|mix(?:es)?|edition|deluxe|anniversary|expanded|reissue|bonus|mono|stereo)"
@@ -122,6 +122,43 @@ def save_cache(path, albums: dict) -> None:
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump({"version": 1, "albums": albums}, f, ensure_ascii=False)
     os.replace(tmp, p)
+
+
+# --------------------------------------------------------------------------- 동시 실행 방지
+
+def acquire_lock(path) -> bool:
+    """같은 캐시 파일을 두 곳(백그라운드 조회, 버튼, 스크립트)에서 동시에 채우지 않게 잠근다. 이미 잠겨 있으면 False.
+    오래 갱신되지 않은 잠금(LOCK_STALE_SEC)은 죽은 프로세스가 남긴 것으로 보고 넘겨받는다."""
+    p = Path(path)
+    for _ in range(2):
+        try:
+            fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            try:
+                if time.time() - p.stat().st_mtime <= LOCK_STALE_SEC:
+                    return False
+                p.unlink()
+            except OSError:
+                pass
+            continue
+        with os.fdopen(fd, "w") as f:
+            f.write(str(os.getpid()))
+        return True
+    return False
+
+
+def touch_lock(path) -> None:
+    try:
+        os.utime(path)
+    except OSError:
+        pass
+
+
+def release_lock(path) -> None:
+    try:
+        Path(path).unlink()
+    except OSError:
+        pass
 
 
 def needs_lookup(entry, now=None, retry_days=RETRY_UNKNOWN_DAYS) -> bool:

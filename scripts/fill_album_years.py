@@ -84,21 +84,33 @@ def main():
         say(f"(dry-run) MusicBrainz 호출 약 {n}~{2 * n}회, 예상 {n * 1.5 / 60:.0f}분 안팎. 실제로 하려면 --dry-run 없이 실행하세요.")
         return
 
+    lock = data_dir / ay.LOCK_NAME
+    if not ay.acquire_lock(lock):                # 다른 곳(백그라운드 조회·버튼)이 이미 채우는 중이면 겹치지 않게 바로 끝낸다
+        say("이미 앨범 연도를 채우는 중이에요. 끝난 뒤에 다시 실행하세요.")
+        if args.json:
+            print(json.dumps({"found": 0, "unknown": 0, "skipped": 0, "remaining": len(todo), "busy": True}))
+        return
+
     if args.apple_only:
         mb = None
     else:
         mb = ay.MusicBrainzClient()
 
     def progress(i, total, stats):
+        ay.touch_lock(lock)
         ay.save_cache(cache_path, cache)
         say(f"  {i}/{total} — 찾음 {stats['found']}, 못 찾음 {stats['unknown']}, 오류로 보류 {stats['skipped']} (MusicBrainz 호출 {mb.calls if mb else 0})", flush=True)
 
     stats = {"found": 0, "unknown": 0, "skipped": 0, "remaining": len(todo), "stopped": False}
     try:
+        # 잠그고 나서 다시 읽는다: 앞서 돌던 조회가 방금 끝났다면 그 결과 위에서 이어 간다
+        cache = ay.load_cache(cache_path)
         stats = ay.fill_years(pairs, cache, mb, apple, overrides, limit=args.limit, now=now, progress=progress)
     except KeyboardInterrupt:
         say("\n중단합니다. 지금까지의 결과를 저장합니다.")
-    ay.save_cache(cache_path, cache)
+    finally:
+        ay.save_cache(cache_path, cache)
+        ay.release_lock(lock)
     if args.json:
         print(json.dumps(stats))
     else:

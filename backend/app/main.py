@@ -261,8 +261,9 @@ def album_years_fill(count: int = ALBUM_YEAR_FILL_LIMIT):
     df = get_filtered_df(None, None)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
-    if not album_years.fill_lock.acquire(blocking=False):
-        return {"error": "이미 앨범 연도를 채우는 중이에요. 끝난 뒤에 다시 눌러 주세요."}
+    lock = DATA_DIR / album_years.LOCK_NAME
+    if not album_years.acquire_lock(lock):
+        return {"error": "이미 앨범 연도를 채우는 중이에요(새로고침 뒤 백그라운드 조회 포함). 잠시 뒤에 다시 눌러 주세요."}
     try:
         cache_path = DATA_DIR / album_years.CACHE_NAME
         cache = album_years.load_cache(cache_path)
@@ -272,7 +273,7 @@ def album_years_fill(count: int = ALBUM_YEAR_FILL_LIMIT):
         )
         album_years.save_cache(cache_path, cache)
     finally:
-        album_years.fill_lock.release()
+        album_years.release_lock(lock)
     return stats
 
 
@@ -500,7 +501,7 @@ def validate():
 
 TAG_FILL_LIMIT = 40   # 새로고침 한 번에 태그를 조회할 최대 아티스트 수
 FILL_LIMIT = 60   # 새로고침 한 번에 길이를 조회할 최대 곡 수
-ALBUM_YEAR_REFRESH_LIMIT = 20   # 새로고침 한 번에 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 시간이 걸린다)
+ALBUM_YEAR_REFRESH_LIMIT = 40   # 새로고침 뒤 백그라운드로 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 앨범당 1~2초)
 
 
 @app.post("/api/refresh")
@@ -628,23 +629,18 @@ def refresh_scrobbles():
         except Exception as e:  # noqa: BLE001
             tags_result = {"error": str(e)}
 
-    # 새 앨범의 발매연도도 소량 채운다 (Music by decade). MusicBrainz 에 닿지 않아도 새로고침은 성공이고, 남은 앨범은 다음에 이어서 한다.
+    # 새 앨범의 발매연도(Music by decade)는 응답을 기다리게 하지 않고 백그라운드로 채운다. MusicBrainz 는 초당 1회 제한이라 앨범당
+    # 1~2초가 걸려서, 기다리면 새로고침이 수십 초 멈춘 것처럼 보인다. 이미 채우는 중이면 스크립트가 잠금을 보고 바로 끝난다.
     years_result = None
     years_script = script_path.with_name("fill_album_years.py")
     try:
-        years_run = subprocess.run(
+        subprocess.Popen(
             ["python3", str(years_script), "--json", "--limit", str(ALBUM_YEAR_REFRESH_LIMIT)],
-            capture_output=True,
-            text=True,
-            timeout=90,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
-        if years_run.returncode == 0:
-            json_lines = [ln for ln in years_run.stdout.splitlines() if ln.startswith("{")]
-            years_result = json.loads(json_lines[-1]) if json_lines else None
-        else:
-            years_result = {"error": (years_run.stderr or years_run.stdout)[-300:]}
-    except subprocess.TimeoutExpired:
-        years_result = {"error": "앨범 연도 조회 시간 초과 (다음에 이어서 합니다)"}
+        years_result = {"started": True}
     except Exception as e:  # noqa: BLE001
         years_result = {"error": str(e)}
 

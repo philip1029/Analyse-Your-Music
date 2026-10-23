@@ -968,12 +968,10 @@ const handleCopyPrompt = () => {
           } else if (tagRes?.fetched) {
             parts.push(`아티스트 태그 ${tagRes.fetched}명 추가${tagRes.remaining ? ` · 남은 ${tagRes.remaining}명은 다음에` : ""}`);
           }
-          // 새 앨범 발매연도 조회 결과 (Music by decade)
-          const yearRes = data.album_years as { error?: string; found?: number; remaining?: number } | null | undefined;
+          // 새 앨범 발매연도(Music by decade)는 백그라운드로 채워지므로 시작하지 못했을 때만 알린다
+          const yearRes = data.album_years as { error?: string } | null | undefined;
           if (yearRes?.error) {
-            parts.push(`앨범 연도 조회 실패: ${yearRes.error}`);
-          } else if (yearRes?.found) {
-            parts.push(`앨범 연도 ${yearRes.found}개 추가${yearRes.remaining ? ` · 남은 ${yearRes.remaining}개는 다음에` : ""}`);
+            parts.push(`앨범 연도 조회를 시작하지 못했어요: ${yearRes.error}`);
           }
           setRefreshMessage(
             `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`

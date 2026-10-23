@@ -10,15 +10,16 @@
   2. Apple 라이브러리 내보내기("Apple Music Library Tracks.json[.zip]"의 Track Year) — MusicBrainz 에 없을 때만 보충 (내보내기가 없으면 건너뜀)
   3. 못 찾으면 연도 없음(null)
 
-캐시: data/album_years.json — {"아티스트\t앨범"(정규화): {"year", "src", "tried", ["ambiguous", "retry"]}}.
+캐시: data/album_years.json — {"아티스트\t앨범"(정규화): {"year", "src", "tried", "apple"(그때 Apple 내보내기가 있었는지), ["ambiguous", "retry"]}}.
 일시적 실패(네트워크 오류·503)는 캐시하지 않고, MusicBrainz 만 못 닿았는데 Apple 이 답을 줬으면 그 값을 쓰되 "retry" 로 남겨 다음에 다시 확인한다.
-못 찾은 결과는 RETRY_UNKNOWN_DAYS 뒤에 다시 시도한다. MusicBrainz 는 초당 1회 제한이 있어 한 번에 조회하는 개수를 limit 으로 나눠서 실행한다.
+못 찾은 결과는 RETRY_UNKNOWN_DAYS 뒤에 다시 시도하고, Apple 없이 못 찾았다면 Apple 폴더를 설정하는 즉시 다시 시도한다. MusicBrainz 는 초당 1회 제한이 있어 한 번에 조회하는 개수를 limit 으로 나눠서 실행한다.
 """
 
 import json
 import os
 import re
 import tempfile
+import threading
 import time
 import unicodedata
 import zipfile
@@ -104,6 +105,60 @@ def override_for(overrides, artist, album) -> int | None:
     return overrides.get((norm(artist), norm(album))) or overrides.get(("", norm(album)))
 
 
+_override_lock = threading.Lock()
+
+
+def _line_key(line: str):
+    """수동 보정 한 줄의 (아티스트 키, 앨범 키). 설명·빈 줄·형식이 틀린 줄은 None."""
+    s = line.strip()
+    if not s or s.startswith("#") or "->" not in s or "::" not in s:
+        return None
+    artist, album = s.rsplit("->", 1)[0].split("::", 1)
+    return ("" if artist.strip() == "*" else norm(artist), norm(album))
+
+
+def set_override(artist: str, album: str, year, path=OVERRIDES_PATH) -> int | None:
+    """
+    앨범 발매연도 수동 보정을 config/album_years.txt 에 저장한다 (화면의 연도 입력이 쓴다). year 가 None 이면 그 앨범의 보정을 지운다.
+    같은 앨범의 기존 줄은 교체하고 설명·다른 줄은 그대로 둔다. 연도나 이름이 잘못되면 ValueError (아무것도 쓰지 않는다).
+    """
+    artist, album = (artist or "").strip(), (album or "").strip()
+    if not album:
+        raise ValueError("앨범 이름이 비어 있어요.")
+    for name in (artist, album):
+        if "::" in name or "->" in name or "\n" in name:
+            raise ValueError("이름에 '::' 나 '->' 가 들어 있어서 수동 보정 파일에 적을 수 없어요. 파일을 직접 고쳐 주세요.")
+    y = None
+    if year is not None:
+        try:
+            y = int(str(year).strip())
+        except ValueError:
+            raise ValueError("연도는 숫자(예: 1994)로 적어 주세요.") from None
+        if not MIN_YEAR <= y <= date.today().year + 1:
+            raise ValueError(f"연도는 {MIN_YEAR}~{date.today().year + 1} 사이로 적어 주세요.")
+    key = ("" if artist in ("", "*") else norm(artist), norm(album))
+    new_line = f"{artist or '*'} :: {album} -> {y}"
+    p = Path(path)
+    with _override_lock:
+        lines = p.read_text(encoding="utf-8").splitlines() if p.exists() else []
+        out, written = [], False
+        for ln in lines:
+            if _line_key(ln) == key:
+                if y is not None and not written:
+                    out.append(new_line)
+                    written = True
+                continue
+            out.append(ln)
+        if y is not None and not written:
+            out.append(new_line)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write("\n".join(out) + ("\n" if out else ""))
+        os.replace(tmp, p)
+    return y
+
+
 # --------------------------------------------------------------------------- 캐시
 
 def load_cache(path) -> dict:
@@ -161,13 +216,17 @@ def release_lock(path) -> None:
         pass
 
 
-def needs_lookup(entry, now=None, retry_days=RETRY_UNKNOWN_DAYS) -> bool:
+def needs_lookup(entry, now=None, retry_days=RETRY_UNKNOWN_DAYS, apple_available=False) -> bool:
+    """조회가 필요한가. 못 찾은 앨범은 retry_days 뒤에 다시 시도하지만, 그때 Apple 내보내기가 없었는데 지금은 있으면 바로 다시 시도한다
+    (Apple 폴더를 나중에 설정해도 30일을 기다리지 않게)."""
     if entry is None:
         return True
     if entry.get("retry"):
         return True
     if entry.get("year"):
         return False
+    if apple_available and not entry.get("apple"):
+        return True
     return (now or time.time()) - entry.get("tried", 0) > retry_days * 86400
 
 
@@ -330,7 +389,7 @@ def fill_years(pairs, cache, mb=None, apple=None, overrides=None, limit=0, now=N
     """
     overrides = overrides or {}
     now = now or time.time()
-    todo = [(a, b, n) for a, b, n in pairs if override_for(overrides, a, b) is None and needs_lookup(cache.get(cache_key(a, b)), now)]
+    todo = [(a, b, n) for a, b, n in pairs if override_for(overrides, a, b) is None and needs_lookup(cache.get(cache_key(a, b)), now, apple_available=apple is not None)]
     todo.sort(key=lambda x: (cache_key(x[0], x[1]) in cache, -x[2]))
     total = len(todo)
     if limit:
@@ -344,7 +403,7 @@ def fill_years(pairs, cache, mb=None, apple=None, overrides=None, limit=0, now=N
         if res is None:
             stats["skipped"] += 1                  # 일시적 오류: 저장하지 않고 다음에 다시
         else:
-            cache[cache_key(artist, album)] = {**res, "tried": int(time.time())}
+            cache[cache_key(artist, album)] = {**res, "tried": int(time.time()), "apple": apple is not None}
             stats["found" if res["year"] else "unknown"] += 1
         # MusicBrainz 에 닿지 않는 상태(오프라인·점검 중)면 계속 두드리지 않고 멈춘다 (남은 앨범은 다음에 이어서)
         transient_run = transient_run + 1 if (res is None or res.get("retry")) else 0

@@ -41,7 +41,7 @@ from app.analysis.taste import (
 from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
 from app import apple_files, album_years
-from app.analysis.decades import build_decades
+from app.analysis.decades import build_decades, list_albums
 from app.analysis.fun_facts import KST, build_facts
 from app.env_config import get_config_status, save_config
 from app.deps_install import install_deps
@@ -249,6 +249,43 @@ def overview_facts():
     if _facts_cache["key"] != key:
         _facts_cache.update(key=key, facts=build_facts(df, today))
     return {"facts": _facts_cache["facts"]}
+
+
+_album_pairs_cache: dict = {"sig": None, "pairs": []}
+
+
+def _album_pairs_for(df) -> list:
+    """(아티스트, 앨범, 재생 수) 목록. 계산이 무거워서 기록 파일이 바뀌기 전에는 다시 계산하지 않는다 (연도 편집 화면이 검색할 때마다 부른다)."""
+    sig = _base_cache["sig"]
+    if _album_pairs_cache["sig"] != sig:
+        _album_pairs_cache.update(sig=sig, pairs=album_years.album_pairs(df))
+    return _album_pairs_cache["pairs"]
+
+
+@app.get("/api/album-years/albums")
+def album_years_albums(q: str = "", unknown: bool = False, offset: int = 0, limit: int = 50):
+    """연도 편집 화면의 앨범 목록 (재생 많은 순). q: 이름 검색, unknown: 연도를 모르는 앨범만."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return list_albums(_album_pairs_for(df), _year_lookup, q, unknown, min(max(limit, 1), 200), offset)
+
+
+class AlbumYearBody(BaseModel):
+    artist: str = ""
+    album: str
+    year: int | None = None      # None: 수동 보정을 지운다
+
+
+@app.post("/api/album-years/override")
+def album_years_override(body: AlbumYearBody):
+    """앨범 발매연도를 직접 정한다 (config/album_years.txt 에 저장, 자동 조회보다 항상 우선). year 가 없으면 그 보정을 지운다."""
+    try:
+        album_years.set_override(body.artist, body.album, body.year)
+    except ValueError as e:
+        return {"error": str(e)}
+    entry = _year_lookup.get(body.artist, body.album)
+    return {"ok": True, "year": entry.get("year") if entry else None, "src": entry.get("src") if entry else None}
 
 
 ALBUM_YEAR_FILL_LIMIT = 25   # 한 번에 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 앨범당 1~2초)

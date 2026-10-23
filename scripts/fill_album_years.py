@@ -71,7 +71,7 @@ def main():
     pairs = ay.album_pairs(pd.read_csv(csv_files[0], encoding="utf-8-sig").fillna(""))
     now = time.time()
     retry_days = 0 if args.retry_unknown else ay.RETRY_UNKNOWN_DAYS
-    todo = [p for p in pairs if ay.override_for(overrides, p[0], p[1]) is None and ay.needs_lookup(cache.get(ay.cache_key(p[0], p[1])), now, retry_days)]
+    todo = [p for p in pairs if ay.override_for(overrides, p[0], p[1]) is None and ay.needs_lookup(cache.get(ay.cache_key(p[0], p[1])), now, retry_days, apple_available=apple is not None)]
     known = sum(1 for a, b, _ in pairs if ay.override_for(overrides, a, b) or (cache.get(ay.cache_key(a, b)) or {}).get("year"))
     say = (lambda *_a, **_k: None) if args.json else print
     say(f"앨범 {len(pairs)}개 · 연도 알고 있음 {known}개 (수동 보정 {len(overrides)}줄) · 이번에 조회할 앨범 {len(todo)}개 · Apple 내보내기 {'사용' if apple else '없음'} · MusicBrainz {'사용 안 함' if args.apple_only else '사용'}")

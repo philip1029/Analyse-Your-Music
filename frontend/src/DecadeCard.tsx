@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { AlbumYearEditor } from "./AlbumYearEditor";
 import { BASE_URL } from "./config";
 import { Num, Skeleton, stagger } from "./motion";
 import { LINE } from "./RankRow";
@@ -47,6 +48,7 @@ export function DecadeCard({ query }: { query: (extra?: Record<string, string | 
   const [filling, setFilling] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -188,21 +190,12 @@ export function DecadeCard({ query }: { query: (extra?: Record<string, string | 
         {message && <span style={{ color: MUTED, fontSize: "0.85rem" }}>{message}</span>}
       </div>
 
-      {data.unknown_top.length > 0 && (
-        <details style={{ color: MUTED, fontSize: "0.85rem", margin: "0.4rem 0" }}>
-          <summary style={{ cursor: "pointer" }}>
-            연도를 모르는 앨범 {(cov.total_albums - cov.known_albums).toLocaleString()}개 (조회 전 {cov.albums_unchecked.toLocaleString()} · 못 찾음 {cov.albums_not_found.toLocaleString()})
-          </summary>
-          <ul style={{ margin: "0.4rem 0", paddingLeft: "1.2rem" }}>
-            {data.unknown_top.map((u) => (
-              <li key={`${u.artist}-${u.album}`}>{u.artist} :: {u.album} <span style={{ opacity: 0.7 }}>({u.plays.toLocaleString()}회)</span></li>
-            ))}
-          </ul>
-          <p style={{ margin: "0.3rem 0" }}>
-            틀렸거나 못 찾은 앨범은 <code>config/album_years.txt</code> 에 <code>아티스트 :: 앨범 -&gt; 연도</code> 로 적으면 바로 반영돼요.
-          </p>
-        </details>
-      )}
+      <div style={{ margin: "0.4rem 0" }}>
+        <button type="button" onClick={() => setEditing((e) => !e)} style={pill(editing, CAT.artist.main)}>
+          ✏️ 연도 직접 입력·수정{cov.total_albums > cov.known_albums ? ` (연도 모르는 앨범 ${(cov.total_albums - cov.known_albums).toLocaleString()}개)` : ""}
+        </button>
+      </div>
+      {editing && <AlbumYearEditor onChanged={() => setVersion((v) => v + 1)} />}
     </section>
   );
 }

@@ -3,6 +3,7 @@
 import pandas as pd
 
 from app.analysis.keys import resolve_all
+from app.lastfm.durations import norm
 
 RELIABLE_COVERAGE = 0.7     # 스크로블 기준으로 이 비율 이상 연도를 알아야 "믿을 만한" 분포로 본다
 TOP_PER_DECADE = 3
@@ -74,6 +75,31 @@ def build_decades(df: pd.DataFrame, lookup) -> dict:
             for r in unknown.sort_values(["plays", "album"], ascending=[False, True]).head(UNKNOWN_TOP).itertuples()
         ],
     }
+
+
+def list_albums(pairs, lookup, q: str = "", only_unknown: bool = False, limit: int = 50, offset: int = 0) -> dict:
+    """연도 편집 화면의 앨범 목록. pairs 는 album_years.album_pairs(df) 의 (아티스트, 앨범, 재생 수)이고 재생 많은 순 그대로다.
+    q 는 아티스트·앨범 이름에 들어 있는지(대소문자·띄어쓰기·기호 무시), only_unknown 이면 연도를 모르는 앨범만."""
+    needle = norm(q)
+    items = []
+    for artist, album, plays in pairs:
+        if needle and needle not in norm(artist) + norm(album):
+            continue
+        entry = lookup.get(artist, album)
+        year = entry.get("year") if entry else None
+        if only_unknown and year:
+            continue
+        items.append({
+            "artist": artist,
+            "album": album,
+            "plays": plays,
+            "year": year,
+            "src": entry.get("src") if entry else None,
+            "manual": bool(entry) and entry.get("src") == "manual",
+            "ambiguous": bool(entry and entry.get("ambiguous")),
+            "checked": entry is not None,
+        })
+    return {"total": len(items), "items": items[max(0, offset): max(0, offset) + max(1, limit)]}
 
 
 def _coverage(known_plays: int, total_plays: int, known_albums: int, total_albums: int) -> dict:

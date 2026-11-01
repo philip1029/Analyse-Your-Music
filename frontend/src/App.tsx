@@ -5,6 +5,7 @@ import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
 import { DecadeCard } from "./DecadeCard";
 import { FunFactCard } from "./FunFactCard";
+import { TagDistributionCard } from "./TagCompare";
 import { DiscoveryList } from "./DiscoveryList";
 import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
@@ -1342,26 +1343,7 @@ const handleCopyPrompt = () => {
       {/* Taste 탭 */}
       {activeTab === "taste" && (
         <>
-          {tagDistribution && (
-            <>
-              <h2>
-                장르/태그 분포{" "}
-                <span style={{ fontSize: "0.8rem", color: "#888" }}>
-                  (재생 {tagDistribution.total_plays ? Math.round((tagDistribution.covered_plays / tagDistribution.total_plays) * 100) : 0}% 반영 ·
-                  아티스트 {tagDistribution.covered_artists} / {tagDistribution.total_artists}명)
-                </span>
-              </h2>
-              <ResponsiveContainer width="100%" height={Math.max(300, tagDistribution.tags.length * 34 + 40)}>
-                <BarChart data={tagDistribution.tags} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis dataKey="tag" type="category" width={150} interval={0} tick={{ fontSize: 13 }} />
-                  <Tooltip />
-                  <Bar dataKey="score" fill="#ff7f50" />
-                </BarChart>
-              </ResponsiveContainer>
-            </>
-          )}
+          {tagDistribution && <TagDistributionCard distribution={tagDistribution} query={buildQuery} baseLabel={dateRange.label} />}
 
           {tagEvolution && tagEvolution.periods.length > 0 && (
             <>

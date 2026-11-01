@@ -34,6 +34,7 @@ from app.analysis.consistency import compute_consistency, stats_for_keys
 from app.analysis.taste import (
     get_artist_tags_page,
     fetch_next_artist_tags,
+    compute_tag_comparison,
     compute_tag_distribution,
     compute_tag_evolution,
     compute_tag_evolution_dynamic,
@@ -523,6 +524,20 @@ def taste_tag_distribution(start: str | None = None, end: str | None = None):
 
     result = compute_tag_distribution(df)
     return result
+
+
+@app.get("/api/taste/tag-compare")
+def taste_tag_compare(month: str, start: str | None = None, end: str | None = None):
+    """장르/태그 분포를 두 기간으로 겹쳐 비교한다: 지금 고른 기간(start~end, 없으면 전체) vs 비교 월(YYYY-MM). 비율(%)로 맞춰 돌려준다."""
+    try:
+        period = pd.Period(month, freq="M")
+    except (ValueError, TypeError):
+        return {"error": "비교 월은 YYYY-MM 형식이어야 합니다."}
+    base_df = get_filtered_df(start, end)
+    if base_df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    cmp_df = get_filtered_df(period.start_time.strftime("%Y-%m-%d"), period.end_time.strftime("%Y-%m-%d"))
+    return compute_tag_comparison(base_df, cmp_df)
 
 
 @app.get("/api/validate")

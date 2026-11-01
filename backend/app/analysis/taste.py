@@ -107,10 +107,9 @@ def fetch_next_artist_tags(df: pd.DataFrame, api_key: str, count: int = 20) -> d
     }
 
 
-def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
+def compute_tag_scores(df: pd.DataFrame) -> dict:
     """
-    캐시에 이미 저장된 아티스트들의 태그를 모아서,
-    재생 횟수로 가중치를 준 태그(장르) 분포를 계산한다.
+    캐시에 이미 저장된 아티스트들의 태그를 모아서, 재생 횟수로 가중치를 준 태그(장르)별 점수를 계산한다.
     캐시에 없는 아티스트는 집계에서 제외된다 (아직 조회 안 된 아티스트).
     """
     artist_counts = df["artist"].value_counts()
@@ -137,18 +136,56 @@ def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
             tag_weight = tag["count"] / 100  # Last.fm count는 0~100 스케일
             tag_scores[tag_name] = tag_scores.get(tag_name, 0) + tag_weight * play_count
 
-    sorted_tags = sorted(tag_scores.items(), key=lambda x: x[1], reverse=True)
+    return {
+        "scores": tag_scores,
+        "total_score": sum(tag_scores.values()),
+        "covered_artists": covered_artists,
+        "total_artists": total_artists,
+        "covered_plays": covered_plays,
+        "total_plays": total_plays,
+    }
+
+
+def compute_tag_distribution(df: pd.DataFrame, top_n: int = 15) -> dict:
+    """재생 횟수로 가중치를 준 태그(장르) 분포 (상위 top_n)."""
+    r = compute_tag_scores(df)
+    sorted_tags = sorted(r["scores"].items(), key=lambda x: x[1], reverse=True)
 
     return {
         "tags": [
             {"tag": name, "score": round(score, 1)}
             for name, score in sorted_tags[:top_n]
         ],
-        "covered_artists": covered_artists,
-        "total_artists": total_artists,
-        "covered_plays": covered_plays,
-        "total_plays": total_plays,
+        "covered_artists": r["covered_artists"],
+        "total_artists": r["total_artists"],
+        "covered_plays": r["covered_plays"],
+        "total_plays": r["total_plays"],
     }
+
+
+def compute_tag_comparison(base_df: pd.DataFrame, cmp_df: pd.DataFrame, top_n: int = 12, max_tags: int = 16) -> dict:
+    """
+    두 기간의 태그 분포를 같은 축에서 겹쳐 비교하기 위한 데이터.
+    기간마다 재생 수가 달라 점수를 그대로 비교할 수 없으므로, 각 기간의 전체 태그 점수에서 차지하는 비율(%)로 맞춘다.
+    표시할 태그는 두 기간 각각의 상위 top_n 태그의 합집합이고, 더 큰 쪽 비율이 큰 순서로 최대 max_tags 개를 돌려준다.
+    """
+    a, b = compute_tag_scores(base_df), compute_tag_scores(cmp_df)
+
+    def share(r, tag):
+        return round(r["scores"].get(tag, 0.0) / r["total_score"] * 100, 2) if r["total_score"] else 0.0
+
+    def top(r):
+        return [t for t, _ in sorted(r["scores"].items(), key=lambda x: x[1], reverse=True)[:top_n]]
+
+    tags = list(dict.fromkeys(top(a) + top(b)))
+    rows = [{"tag": t, "base": share(a, t), "compare": share(b, t), "base_score": round(a["scores"].get(t, 0.0), 1), "compare_score": round(b["scores"].get(t, 0.0), 1)} for t in tags]
+    rows.sort(key=lambda r: (-max(r["base"], r["compare"]), r["tag"]))
+
+    def stats(r):
+        return {k: r[k] for k in ("covered_artists", "total_artists", "covered_plays", "total_plays")}
+
+    return {"tags": rows[:max_tags], "base": stats(a), "compare": stats(b)}
+
 
 def compute_tag_evolution(df: pd.DataFrame, top_n_tags: int = 6) -> dict:
     """

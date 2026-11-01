@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { BASE_URL } from "./config";
 import { LINE } from "./RankRow";
 import { cover } from "./Share";
+import { tagEmoji } from "./tagEmoji";
 import { MUTED } from "./theme";
 
 // Bar chart race: 기간(월/주)이 흘러가면서 누적 재생 순위가 바뀌는 모습을 canvas 로 그린다 (막대가 자라고 순위가 휙휙 바뀐다).
@@ -10,13 +11,15 @@ import { MUTED } from "./theme";
 type Cat = "artist" | "album" | "track" | "tag";
 type Step = "month" | "week" | "day";
 type Mode = "cumulative" | "rolling";
-type Entity = { key: string; name: string; artist: string | null; values: number[] };
+type Entity = { key: string; name: string; artist: string | null; album: string | null; album_artist: string | null; values: number[] };
+type Avatar = "auto" | "photo" | "album";
 type RaceData = { error?: string; cat: Cat; step: Step; window: number; periods: { label: string; date: string }[]; entities: Entity[]; total_plays: number; coverage: number | null };
 type Ratio = "9:16" | "4:5";
 
 const W = 1080;
 const HEIGHT: Record<Ratio, number> = { "9:16": 1920, "4:5": 1350 };
 const FONT = '"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif';
+const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const PALETTE = ["#ff7f50", "#4aa3ff", "#61d4b6", "#c490ff", "#ffcf5c", "#ff6b9a", "#7bd96a", "#f08a4b", "#5fd0e8", "#b5a3ff", "#e86a6a", "#9ad14b"];
 const CAT_LABEL: Record<Cat, string> = { artist: "아티스트", album: "앨범", track: "트랙", tag: "장르/태그" };
 const PERIODS_PER_SEC: Record<Step, number> = { month: 1.1, week: 5, day: 14 };
@@ -25,7 +28,8 @@ const HOLD_SECONDS = 2;           // 끝나고 마지막 순위를 보여 주는
 const MIN_SPEED = 0.05;           // 속도 슬라이더 범위 (로그 눈금: 느린 쪽을 촘촘하게)
 const MAX_SPEED = 8;
 const SPEED_PRESETS = [0.1, 0.25, 0.5, 1, 2, 4];
-const SLOW_MIN = 0.25;            // 슬로우 모션 때 가장 느려지는 정도 (원래 속도의 25%)
+const SLOW_LEVELS = [{ min: 0.5, label: "약하게 (50%)" }, { min: 0.25, label: "보통 (25%)" }, { min: 0.1, label: "강하게 (10%)" }];   // 1위 교체 순간의 최저 속도
+const DEFAULT_SLOW = 0.25;
 const fmtSpeed = (x: number) => `${x < 1 ? x.toFixed(2).replace(/0$/, "") : x < 10 ? x.toFixed(1).replace(/\.0$/, "") : x.toFixed(0)}x`;
 const THEMES = {
   dark: { bg: "#121214", fg: "#ffffff", sub: "#9a9aa2", track: "rgba(255,255,255,0.07)", ghost: "rgba(255,255,255,0.09)" },
@@ -86,15 +90,15 @@ function leaderEvents(race: RaceData): number[] {
   return out;
 }
 
-// 1위 교체 순간(events)에 가까울수록 느려지는 시간 배율 (1 = 보통, SLOW_MIN = 가장 느림)
-function slowFactor(events: number[], t: number, rate: number): number {
+// 1위 교체 순간(events)에 가까울수록 느려지는 시간 배율 (1 = 보통, slowMin = 교체 순간의 가장 느린 속도)
+function slowFactor(events: number[], t: number, rate: number, slowMin: number): number {
   const reach = rate * 1.3;                                          // 앞뒤로 약 1.3초 구간
   let w = 0;
   for (const e of events) {
     if (e - t > reach) break;
     w = Math.max(w, 1 - Math.abs(e - t) / reach);
   }
-  return 1 - (1 - SLOW_MIN) * ease(Math.max(0, w));
+  return 1 - (1 - slowMin) * ease(Math.max(0, w));
 }
 
 type View = {
@@ -271,12 +275,17 @@ function drawFrame(ctx: CanvasRenderingContext2D, v: View, t: number, dt: number
       const s = Math.max((r * 2) / img.width, (r * 2) / img.height);
       ctx.drawImage(img, cx - (img.width * s) / 2, cy - (img.height * s) / 2, img.width * s, img.height * s);
     } else {
-      ctx.fillStyle = color;
+      ctx.fillStyle = race.cat === "tag" ? "#ffffff" : color;           // 이모지는 흰 바탕 위에 올린다
       ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
-      ctx.fillStyle = "#111";
       ctx.textAlign = "center";
-      ctx.font = `800 ${Math.round(r)}px ${FONT}`;
-      ctx.fillText(Array.from(c.e.name)[0]?.toUpperCase() ?? "", cx, cy + r * 0.34);
+      if (race.cat === "tag") {                                          // 장르는 어울리는 이모지를 넣는다
+        ctx.font = `${Math.round(r * 1.15)}px ${EMOJI_FONT}`;
+        ctx.fillText(tagEmoji(c.e.name), cx, cy + r * 0.4);
+      } else {
+        ctx.fillStyle = "#111";
+        ctx.font = `800 ${Math.round(r)}px ${FONT}`;
+        ctx.fillText(Array.from(c.e.name)[0]?.toUpperCase() ?? "", cx, cy + r * 0.34);
+      }
     }
     ctx.restore();
     ctx.lineWidth = 4;
@@ -321,11 +330,13 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
   const [stepChoice, setStep] = useState<Step>("month");
   const step: Step = mode === "rolling" ? "day" : stepChoice;
   const [coverColors, setCoverColors] = useState(true);
+  const [avatar, setAvatar] = useState<Avatar>("auto");
   const [topN, setTopN] = useState(10);
   const [ratio, setRatio] = useState<Ratio>("9:16");
   const [themeId, setThemeId] = useState<ThemeId>("dark");
   const [speed, setSpeed] = useState(1);
   const [slowMo, setSlowMo] = useState(true);
+  const [slowMin, setSlowMin] = useState(DEFAULT_SLOW);
   const [race, setRace] = useState<RaceData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [username, setUsername] = useState<string | null>(null);
@@ -334,7 +345,7 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
   const [recording, setRecording] = useState<string | null>(null);
 
   // 애니메이션 상태는 ref 에 둔다 (프레임마다 React 를 다시 그리지 않기 위해)
-  const st = useRef({ t: 0, playing: false, speed: 1, slow: true, events: [] as number[], last: 0, hold: 0, ys: new Map<string, number>(), scale: { max: 1 }, images: new Map<string, HTMLImageElement | null>(), colors: new Map<string, string>(), lead: { key: null as string | null, flash: 0, held: 0 }, recorder: null as null | { stop: () => void } });
+  const st = useRef({ t: 0, playing: false, speed: 1, slow: true, slowMin: DEFAULT_SLOW, events: [] as number[], last: 0, hold: 0, ys: new Map<string, number>(), scale: { max: 1 }, images: new Map<string, HTMLImageElement | null>(), colors: new Map<string, string>(), lead: { key: null as string | null, flash: 0, held: 0 }, recorder: null as null | { stop: () => void } });
   const view = useRef<View | null>(null);
 
   useEffect(() => {
@@ -368,7 +379,8 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
     };
   }, [cat, step, topN, mode, query]);
 
-  // 커버 이미지 미리 받기 (몇 개씩 나눠서)
+  // 막대 끝 이미지 미리 받기 (몇 개씩 나눠서). 직접 올린 커버가 있으면 서버가 그것을 먼저 돌려준다.
+  // 아티스트는 사진 -> (없으면) 가장 많이 들은 앨범 커버, 트랙은 앨범 커버 -> (없으면) 아티스트 사진이 기본이고, avatar 로 우선순위를 바꿀 수 있다.
   useEffect(() => {
     if (!race || race.cat === "tag") {
       setImagesLoaded(0);
@@ -377,13 +389,27 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
     let cancelled = false;
     const images = st.current.images;
     const colors = st.current.colors;
+    images.clear();
+    colors.clear();
+    setImagesLoaded(0);
+    const loadAvatar = async (e: Entity): Promise<HTMLImageElement | null> => {
+      const photo = () => cover("artist", race.cat === "artist" ? e.name : e.artist);
+      const album = () => (e.album ? cover("album", e.album_artist, e.album) : Promise.resolve(null));
+      const order = race.cat === "album" ? [album] : avatar === "photo" ? [photo, album] : avatar === "album" ? [album, photo] : race.cat === "artist" ? [photo, album] : [album, photo];
+      for (const load of order) {
+        const img = await load();
+        if (img) return img;
+      }
+      return null;
+    };
     (async () => {
       let done = 0;
       const items = [...race.entities];
       for (let i = 0; i < items.length && !cancelled; i += 4) {
         await Promise.all(
           items.slice(i, i + 4).map(async (e) => {
-            const img = race.cat === "artist" ? await cover("artist", e.name) : race.cat === "album" ? await cover("album", e.artist, e.name) : await cover("artist", e.artist);
+            const img = await loadAvatar(e);
+            if (cancelled) return;
             images.set(e.key, img);
             const col = img ? dominantColor(img) : null;
             if (col) colors.set(e.key, col);
@@ -396,7 +422,7 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
     return () => {
       cancelled = true;
     };
-  }, [race]);
+  }, [race, avatar]);
 
   // 보여 줄 값이 바뀔 때마다 view 갱신
   useEffect(() => {
@@ -432,7 +458,7 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
       const last = v.race.periods.length - 1;
       if (s.playing) {
         const rate = PERIODS_PER_SEC[v.race.step];
-        s.t += dt * rate * s.speed * (s.slow ? slowFactor(s.events, s.t, rate) : 1);
+        s.t += dt * rate * s.speed * (s.slow ? slowFactor(s.events, s.t, rate, s.slowMin) : 1);
         if (s.t >= last) {
           s.t = last;
           s.hold += dt;
@@ -555,6 +581,16 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
             <option value="4:5">4:5 (피드)</option>
           </select>
         </label>
+        {(cat === "artist" || cat === "track") && (
+          <label style={{ fontSize: "0.85rem", color: MUTED }}>
+            이미지{" "}
+            <select value={avatar} onChange={(e) => setAvatar(e.target.value as Avatar)} style={{ background: "transparent", color: "inherit", border: LINE, borderRadius: 6, padding: "0.2rem" }}>
+              <option value="auto">{cat === "artist" ? "자동 (사진, 없으면 앨범)" : "자동 (앨범, 없으면 사진)"}</option>
+              <option value="photo">아티스트 사진 우선</option>
+              <option value="album">앨범 커버 우선</option>
+            </select>
+          </label>
+        )}
         <label style={{ fontSize: "0.85rem", color: MUTED }}>
           막대 색{" "}
           <select value={coverColors ? "cover" : "palette"} onChange={(e) => setCoverColors(e.target.value === "cover")} style={{ background: "transparent", color: "inherit", border: LINE, borderRadius: 6, padding: "0.2rem" }}>
@@ -617,6 +653,15 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
             <label style={{ fontSize: "0.85rem", color: MUTED, display: "flex", alignItems: "center", gap: "0.4rem" }}>
               <input type="checkbox" checked={slowMo} onChange={(e) => { setSlowMo(e.target.checked); st.current.slow = e.target.checked; }} />
               슬로우 모션 (1위가 바뀌는 순간 앞뒤로 느려져요)
+              <select
+                value={slowMin}
+                disabled={!slowMo}
+                aria-label="슬로우 정도"
+                onChange={(e) => { const x = Number(e.target.value); setSlowMin(x); st.current.slowMin = x; }}
+                style={{ background: "transparent", color: "inherit", border: LINE, borderRadius: 6, padding: "0.15rem" }}
+              >
+                {SLOW_LEVELS.map((l) => <option key={l.min} value={l.min}>{l.label}</option>)}
+              </select>
             </label>
           </div>
           <input

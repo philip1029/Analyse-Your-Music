@@ -89,12 +89,15 @@ def build_race(df: pd.DataFrame, cat: str = "artist", step: str = "month", top_n
     artist_of: dict[str, str | None] = {}
     name_of: dict[str, str] = {}
     coverage = None
+    row_keys = None
     if cat == "artist":
         keys = df["artist"].fillna("").astype(str)
+        row_keys = keys
         cum = windowed(_cumulative(keys, idx, count))
         name_of = {k: k for k in cum.index}
     elif cat in ("album", "track"):
         keys, reps, names = resolve_all(df, cat)
+        row_keys = keys
         cum = windowed(_cumulative(keys, idx, count))
         first = pd.DataFrame({"key": keys, "artist": reps, "name": names}).drop_duplicates("key").set_index("key")
         artist_of = {k: (first.at[k, "artist"] or None) for k in cum.index}
@@ -121,8 +124,26 @@ def build_race(df: pd.DataFrame, cat: str = "artist", step: str = "month", top_n
     peak = {k: float(matrix[names.index(k)].max()) for k in chosen}
     keep = sorted(chosen, key=lambda k: (-peak[k], k))[:max_entities]
 
+    # 막대 끝의 이미지용: 개체마다 가장 많이 들은 앨범(앨범 커버를 찾을 때 쓰는 대표 아티스트와 앨범 이름). 아티스트 사진이 없거나 앨범 커버를 쓰고 싶을 때 쓴다.
+    album_of: dict[str, tuple[str | None, str | None]] = {}
+    if cat in ("artist", "track") and row_keys is not None:
+        akeys, areps, anames = resolve_all(df, "album")
+        pairs = pd.DataFrame({"key": row_keys, "album_artist": areps, "album": anames})
+        pairs = pairs[(pairs["key"] != "") & (pairs["album"] != "")]
+        top = pairs.groupby(["key", "album_artist", "album"]).size().reset_index(name="n").sort_values(["key", "n", "album"], ascending=[True, False, True]).drop_duplicates("key").set_index("key")
+        album_of = {k: (top.at[k, "album_artist"] or None, top.at[k, "album"]) for k in top.index}
+    elif cat == "album":
+        album_of = {k: (artist_of.get(k), name_of[k]) for k in keep}
+
     entities = [
-        {"key": k, "name": name_of[k], "artist": artist_of.get(k), "values": [round(float(v), 1) if cat == "tag" else int(v) for v in cum.loc[k].to_numpy()]}
+        {
+            "key": k,
+            "name": name_of[k],
+            "artist": artist_of.get(k),
+            "album": album_of.get(k, (None, None))[1],
+            "album_artist": album_of.get(k, (None, None))[0],
+            "values": [round(float(v), 1) if cat == "tag" else int(v) for v in cum.loc[k].to_numpy()],
+        }
         for k in keep
     ]
     return {"cat": cat, "step": step, "window": window, "top_n": top_n, "periods": periods, "entities": entities, "total_plays": int(len(df)), "coverage": coverage}

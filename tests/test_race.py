@@ -64,6 +64,19 @@ class RaceTest(unittest.TestCase):
             r = race.build_race(df, cat, "month", 3)
             self.assertEqual((r["entities"][0]["name"], r["entities"][0]["artist"], r["entities"][0]["values"]), (name, "A", [3]))
 
+    def test_entities_carry_their_most_played_album_for_cover_lookup(self):
+        df = frame([
+            ("2025-01-01 10:00:00", "A", "Hit Album", "Song1"), ("2025-01-02 10:00:00", "A", "Hit Album", "Song1"), ("2025-01-03 10:00:00", "A", "Hit Album", "Song2"),
+            ("2025-01-04 10:00:00", "A", "Other", "Song3"), ("2025-01-05 10:00:00", "B", "", "NoAlbum"),
+        ])
+        by = {e["name"]: e for e in race.build_race(df, "artist", "month", 5)["entities"]}
+        self.assertEqual((by["A"]["album"], by["A"]["album_artist"]), ("Hit Album", "A"))              # 아티스트: 가장 많이 들은 앨범
+        self.assertEqual((by["B"]["album"], by["B"]["album_artist"]), (None, None))                    # 앨범 정보가 없으면 없음
+        tracks = {e["name"]: e for e in race.build_race(df, "track", "month", 5)["entities"]}
+        self.assertEqual((tracks["Song3"]["album"], tracks["Song3"]["album_artist"]), ("Other", "A"))  # 트랙: 그 곡이 들어 있는 앨범
+        albums = {e["name"]: e for e in race.build_race(df, "album", "month", 5)["entities"]}
+        self.assertEqual((albums["Hit Album"]["album"], albums["Hit Album"]["album_artist"]), ("Hit Album", "A"))
+
     def test_tag_race_weights_by_cached_tags_and_reports_coverage(self):
         with tempfile.TemporaryDirectory() as tmp:
             cache = Path(tmp)

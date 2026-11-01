@@ -175,6 +175,12 @@ function drawFrame(ctx: CanvasRenderingContext2D, v: View, t: number, dt: number
     v.lead.held += dt;
   }
   v.lead.flash = Math.max(0, v.lead.flash - dt / 1.6);
+  if (v.lead.flash > 0.02 && cur[0] && cur[0].val > 0) {                // 1위가 바뀌는 순간: 새 1위의 색으로 배경이 번쩍였다가 서서히 사라진다
+    ctx.globalAlpha = Math.min(1, v.lead.flash * 1.4) * 0.3;
+    ctx.fillStyle = (v.useCover && v.colors.get(cur[0].e.key)) || PALETTE[cur[0].idx % PALETTE.length];
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = 1;
+  }
 
   // 제목
   const headerH = 300;

@@ -43,6 +43,7 @@ from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
 from app import apple_files, album_years
 from app.analysis.decades import build_decades, list_albums
+from app.analysis.race import build_race
 from app.analysis.fun_facts import KST, build_facts
 from app.env_config import get_config_status, save_config
 from app.deps_install import install_deps
@@ -524,6 +525,16 @@ def taste_tag_distribution(start: str | None = None, end: str | None = None):
 
     result = compute_tag_distribution(df)
     return result
+
+
+@app.get("/api/race")
+def race(cat: str = "artist", step: str = "month", top: int = 10, window: int = 0, start: str | None = None, end: str | None = None):
+    """Bar chart race 데이터: 기간(월/주/일)마다 누적 재생 값을 개체(artist/album/track/tag)별로. window(일)를 주면 누적 대신 최근 window 일 롤링 값.
+    어느 기간에든 상위 top 에 든 개체만 준다."""
+    df = get_filtered_df(start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return build_race(df, cat, step, top, window=window)
 
 
 @app.get("/api/taste/tag-compare")

@@ -87,7 +87,7 @@ async function coverUrl(kind: "album" | "artist", artist: string | null, album?:
   }
 }
 
-const cover = (kind: "album" | "artist", artist: string | null, album?: string | null) =>
+export const cover = (kind: "album" | "artist", artist: string | null, album?: string | null) =>
   coverUrl(kind, artist, album).then(loadImage);
 
 // ---------------------------------------------------------------- canvas 그리기 도구

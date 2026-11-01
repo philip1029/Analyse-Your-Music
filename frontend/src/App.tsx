@@ -6,6 +6,7 @@ import { CatStat, OverviewCards } from "./OverviewCards";
 import { DecadeCard } from "./DecadeCard";
 import { FunFactCard } from "./FunFactCard";
 import { TagDistributionCard } from "./TagCompare";
+import { RaceTab } from "./Race";
 import { DiscoveryList } from "./DiscoveryList";
 import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
@@ -122,7 +123,7 @@ type Diversity = {
   album: DiversityMetric;
 };
 
-type TabId = "overview" | "listening" | "music" | "discovery" | "taste" | "data";
+type TabId = "overview" | "listening" | "music" | "discovery" | "taste" | "race" | "data";
 
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -130,6 +131,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "music", label: "Music" },
   { id: "discovery", label: "Discovery" },
   { id: "taste", label: "Taste" },
+  { id: "race", label: "Race" },
   { id: "data", label: "Data" },
 ];
 
@@ -1339,6 +1341,9 @@ const handleCopyPrompt = () => {
           </div>
         </>
       )}
+
+      {/* Race 탭 */}
+      {activeTab === "race" && <RaceTab query={buildQuery} />}
 
       {/* Taste 탭 */}
       {activeTab === "taste" && (

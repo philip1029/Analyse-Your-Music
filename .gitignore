@@ -2,6 +2,9 @@
 data/*.csv
 data/*.bak*
 data/*.json
+data/*.lock
+# Apple 개인정보 내보내기 (개인 데이터, 용량이 큼)
+data/apple/
 backend/cache/
 __pycache__/
 **/.DS_Store

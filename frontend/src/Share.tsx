@@ -64,7 +64,10 @@ function loadImage(url: string | null): Promise<HTMLImageElement | null> {
       const img = new Image();
       img.crossOrigin = "anonymous";
       img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
+      img.onerror = () => {
+        imageMemo.delete(url);        // 실패는 기억하지 않는다: 서버가 잠깐 재시작됐거나 방금 올린 파일이라 한 번 못 받아도, 다음에 다시 받아 오게 (새로고침 전까지 빈 칸으로 남지 않도록)
+        resolve(null);
+      };
       // 직접 올린 커버("/api/cover-file/...")는 우리 서버 파일이라 바로, 외부 주소는 프록시로 받는다
       img.src = url.startsWith("/") ? `${BASE_URL}${url}` : `${BASE_URL}/api/image-proxy?url=${encodeURIComponent(url)}`;
     });
@@ -220,9 +223,9 @@ function drawSummary(ctx: Ctx, r: Report, t: Theme, images: Img[]) {
   setFont(ctx, 150, 800);
   ctx.fillText(r.scrobbles.toLocaleString(), PAD, 420);
   const numW = ctx.measureText(r.scrobbles.toLocaleString()).width;
-  setFont(ctx, 56, 500);
   ctx.fillStyle = t.sub;
-  ctx.fillText("스크로블", PAD + numW + 24, 420);
+  fitFont(ctx, "Scrobbles", W - PAD - (PAD + numW + 24), 56, 500, 30);      // 숫자가 아주 크면(6자리 이상) 글자를 조금 줄여 이미지 안에 맞춘다
+  ctx.fillText("Scrobbles", PAD + numW + 24, 420);
   ctx.fillStyle = t.fg;
   setFont(ctx, 44, 600);
   ctx.fillText(`청취 시간 ${fmtHM(r.seconds)}`, PAD, 500);
@@ -297,7 +300,7 @@ function drawTop(ctx: Ctx, r: Report, t: Theme, cat: Cat, metric: Metric, imgs: 
   ctx.fillText(`Top ${cat === "artist" ? "아티스트" : cat === "album" ? "앨범" : "트랙"}`, PAD, 330);
   setFont(ctx, 40, 500);
   ctx.fillStyle = t.sub;
-  ctx.fillText(metric === "time" ? "청취 시간 순 (스크로블 × 곡 길이)" : "재생 횟수 순", PAD, 400);
+  ctx.fillText(metric === "time" ? "청취 시간 순 (Scrobbles × 곡 길이)" : "재생 횟수 순", PAD, 400);
 
   const value = (it: TopItem) => (metric === "time" ? it.seconds ?? 0 : it.count);
   const max = Math.max(1, ...items.map(value));
@@ -458,7 +461,7 @@ function normalizeAlbum(d: { name: string; artist: string | null; scrobbles: num
     coverArtist: d.artist,
     coverAlbum: d.name,
     stats: [
-      { label: "스크로블", value: d.scrobbles.toLocaleString() },
+      { label: "Scrobbles", value: d.scrobbles.toLocaleString() },
       { label: "청취 시간", value: fmtHM(d.seconds) },
       { label: "트랙", value: `${d.tracks_count}곡` },
       when("처음 들은 날", d.first_played),
@@ -481,7 +484,7 @@ function normalizeArtist(d: { name: string; scrobbles: number; seconds: number; 
     coverArtist: d.name,
     coverAlbum: null,
     stats: [
-      { label: "스크로블", value: d.scrobbles.toLocaleString() },
+      { label: "Scrobbles", value: d.scrobbles.toLocaleString() },
       { label: "청취 시간", value: fmtHM(d.seconds) },
       { label: "앨범 · 트랙", value: `${d.albums_count} · ${d.tracks_count}` },
       when("처음 들은 날", d.first_played),
@@ -504,7 +507,7 @@ function normalizeTrack(d: { name: string; artist: string | null; album: string 
     coverArtist: d.artist,
     coverAlbum: d.album,
     stats: [
-      { label: "스크로블", value: d.scrobbles.toLocaleString() },
+      { label: "Scrobbles", value: d.scrobbles.toLocaleString() },
       { label: "청취 시간", value: fmtHM(d.seconds) },
       { label: "곡 길이", value: d.duration ? fmtDuration(d.duration) : "-" },
       when("처음 들은 날", d.first_played),

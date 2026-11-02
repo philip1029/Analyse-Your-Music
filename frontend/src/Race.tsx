@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import { BASE_URL } from "./config";
 import { LINE } from "./RankRow";
 import { cover } from "./Share";
@@ -343,6 +344,21 @@ function drawFrame(ctx: CanvasRenderingContext2D, v: View, t: number, dt: number
   ctx.textAlign = "left";
 }
 
+const VIDEO_FPS = 30;
+const VIDEO_BITRATE = 8_000_000;
+const H264_CODECS = ["avc1.640034", "avc1.640028", "avc1.4d0028"];   // High 5.2 / High 4.0 / Main 4.0
+
+// 타이머는 탭이 가려지면 느려지지만 MessageChannel 은 그렇지 않아서, 렌더링 루프가 숨은 탭에서도 같은 속도로 돈다
+const yieldNow = () =>
+  new Promise<void>((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => {
+      ch.port1.close();
+      resolve();
+    };
+    ch.port2.postMessage(0);
+  });
+
 const pill = (on: boolean): CSSProperties => ({
   padding: "0.25rem 0.8rem",
   borderRadius: 999,
@@ -375,9 +391,10 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
   const [imagesLoaded, setImagesLoaded] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [recording, setRecording] = useState<string | null>(null);
+  const [rendering, setRendering] = useState(false);
 
   // 애니메이션 상태는 ref 에 둔다 (프레임마다 React 를 다시 그리지 않기 위해)
-  const st = useRef({ t: 0, playing: false, speed: 1, slow: true, slowMin: DEFAULT_SLOW, events: [] as number[], last: 0, hold: 0, ys: new Map<string, number>(), scale: { max: 1 }, images: new Map<string, HTMLImageElement | null>(), colors: new Map<string, string>(), lead: { key: null as string | null, flash: 0, held: 0 }, recorder: null as null | { stop: () => void } });
+  const st = useRef({ t: 0, playing: false, speed: 1, slow: true, slowMin: DEFAULT_SLOW, cancel: false, events: [] as number[], last: 0, hold: 0, ys: new Map<string, number>(), scale: { max: 1 }, images: new Map<string, HTMLImageElement | null>(), colors: new Map<string, string>(), lead: { key: null as string | null, flash: 0, held: 0 }, recorder: null as null | { stop: () => void } });
   const view = useRef<View | null>(null);
 
   useEffect(() => {
@@ -542,6 +559,108 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
     s.lead.held = 0;
     s.ys.clear();
     s.scale.max = 1;
+  };
+
+  // 영상 저장 (빠른 방식): 화면을 실시간으로 녹화하지 않고, 30fps 프레임을 직접 한 장씩 그려서 H.264 로 인코딩하고 mp4 로 묶는다.
+  // 재생이 아니라 계산이라 영상 길이보다 훨씬 빨리 끝나고, 탭이 가려져도(다른 창을 써도) 같은 속도로 진행된다. 화면의 재생 상태와도 무관하다.
+  const saveVideo = async () => {
+    const v0 = view.current;
+    if (!race || !v0) return;
+    if (typeof VideoEncoder === "undefined" || typeof VideoFrame === "undefined") {
+      record();                                                           // WebCodecs 가 없는 브라우저는 예전 실시간 녹화로
+      return;
+    }
+    const H = HEIGHT[v0.ratio];
+    let config: VideoEncoderConfig | null = null;
+    for (const codec of H264_CODECS) {
+      const probe = await VideoEncoder.isConfigSupported({ codec, width: W, height: H, bitrate: VIDEO_BITRATE, framerate: VIDEO_FPS });
+      if (probe.supported && probe.config) {
+        config = probe.config;
+        break;
+      }
+    }
+    if (!config) {
+      record();
+      return;
+    }
+    const s0 = st.current;
+    s0.cancel = false;
+    setRendering(true);
+    const title0 = document.title;
+    const off = document.createElement("canvas");
+    off.width = W;
+    off.height = H;
+    const ctx = off.getContext("2d");
+    if (!ctx) {
+      setRendering(false);
+      return;
+    }
+    const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: "avc", width: W, height: H }, fastStart: "in-memory" });
+    let failure: Error | null = null;
+    const encoder = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: (e) => (failure = e as Error) });
+    encoder.configure(config);
+    // 화면 재생과 섞이지 않도록 애니메이션 상태(순위 위치·축·1위)는 새로 만들고, 이미지와 색만 공유한다
+    const clip: View = { ...v0, ys: new Map(), scale: { max: 1 }, lead: { key: null, flash: 0, held: 0 } };
+    const last = race.periods.length - 1;
+    const rate = PERIODS_PER_SEC[race.step];
+    const dt = 1 / VIDEO_FPS;
+    let t = 0;
+    let hold = 0;
+    let frame = 0;
+    const started = performance.now();
+    try {
+      while (!s0.cancel && !failure) {
+        if (frame > 0) {
+          t += dt * rate * s0.speed * (s0.slow ? slowFactor(s0.events, t, rate, s0.slowMin) : 1);
+          if (t >= last) {
+            t = last;
+            hold += dt;
+          }
+        }
+        drawFrame(ctx, clip, t, dt);
+        const vf = new VideoFrame(off, { timestamp: Math.round((frame * 1e6) / VIDEO_FPS), duration: Math.round(1e6 / VIDEO_FPS) });
+        encoder.encode(vf, { keyFrame: frame % (VIDEO_FPS * 2) === 0 });
+        vf.close();
+        frame++;
+        if (hold >= HOLD_SECONDS) break;
+        if (frame % 12 === 0) {
+          const pct = Math.min(99, Math.round((t / Math.max(last, 1)) * 100));
+          setRecording(`영상 만드는 중 ${pct}% (${(frame / VIDEO_FPS).toFixed(0)}초 분량) — 탭이 가려져도 계속돼요`);
+          document.title = `🎬 ${pct}% · ${title0}`;
+        }
+        while (encoder.encodeQueueSize > 8) await yieldNow();            // 인코더가 밀리면 기다린다
+        if (frame % 4 === 0) await yieldNow();                            // 화면이 멈추지 않게 가끔 양보
+      }
+      if (s0.cancel) {
+        encoder.close();
+        setRecording("렌더링을 중단했어요");
+        return;
+      }
+      await encoder.flush();
+      if (failure) throw failure;
+      muxer.finalize();
+      const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `analyse-your-music_race_${race.cat}_${race.step}.mp4`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      setRecording(`저장했어요 (mp4, ${(blob.size / 1e6).toFixed(1)}MB, ${(frame / VIDEO_FPS).toFixed(0)}초 · ${((performance.now() - started) / 1000).toFixed(0)}초 걸림)`);
+    } catch (e) {
+      setRecording(`영상을 만들지 못했어요: ${(e as Error).message}`);
+      try {
+        encoder.close();
+      } catch {
+        /* 이미 닫힘 */
+      }
+    } finally {
+      document.title = title0;
+      setRendering(false);
+    }
+  };
+
+  const cancelRender = () => {
+    st.current.cancel = true;
   };
 
   const record = () => {
@@ -711,10 +830,12 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
             style={{ width: "100%" }}
           />
           <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
-            {st.current.recorder || (recording && recording.startsWith("녹화")) ? (
+            {rendering ? (
+              <button type="button" onClick={cancelRender} style={pill(false)}>⏹ 렌더링 중단</button>
+            ) : st.current.recorder || (recording && recording.startsWith("녹화")) ? (
               <button type="button" onClick={stopRecording} style={pill(false)}>⏹ 녹화 중단</button>
             ) : (
-              <button type="button" onClick={record} disabled={!race || race.entities.length === 0} style={pill(false)}>🎬 영상으로 저장</button>
+              <button type="button" onClick={saveVideo} disabled={!race || race.entities.length === 0} style={pill(false)}>🎬 영상으로 저장</button>
             )}
           </div>
           {recording && <p style={{ color: MUTED, fontSize: "0.85rem", margin: 0 }}>{recording}</p>}

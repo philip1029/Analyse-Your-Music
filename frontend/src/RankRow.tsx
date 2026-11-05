@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Cover } from "./Cover";
+import { HeartButton } from "./Favorites";
 import { Num, stagger } from "./motion";
 import { CAT } from "./theme";
 
@@ -72,6 +73,7 @@ export function RankRow({
         {subtitle && <div style={{ color: "#999", fontSize: "0.9rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{subtitle}</div>}
         {extra}
       </div>
+      {kind === "track" && <HeartButton artist={item.artist} name={item.name} />}
       <div style={{ width: "38%", maxWidth: 360, flexShrink: 0 }}>
         <div
           className="aym-bar"

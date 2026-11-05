@@ -66,7 +66,7 @@ Last.fm을 쓰기 전부터의 재생 기록이 Apple Music에 남아있다면, 
 
 ## 데이터는 어디 저장되나요
 
-- `data/` — 스크로블 CSV (gitignore 대상, 로컬에만 저장)
+- `data/` — 스크로블 CSV와 좋아요한 곡 목록 `favorites.json` (gitignore 대상, 로컬에만 저장)
 - `backend/cache/artists/` — Last.fm 아티스트 태그 캐시 (gitignore 대상)
 - `.env` — API 키 (gitignore 대상)
 
@@ -181,6 +181,19 @@ python3 scripts/fill_album_years.py --apple-only  # MusicBrainz 없이 Apple 내
   구성: 기간 요약 / 청취량 흐름 / 순위(직전 기간 대비 신규·복귀) / 신규 발견 / 시간 패턴·연속 청취 세션 /
   장르·언어권·집중도 / 분석 요청. 연간은 월별 표(월별 Top 아티스트·신규 아티스트 수), 연도별 추이, 연간 하이라이트
   (가장 많이 들은 날, 최장 연속 청취일)가 추가됩니다.
+
+## 좋아요(♥) 곡 (Music 탭)
+
+곡 목록(Top 10·Tracks, 앨범·아티스트 상세 페이지의 곡)의 ♡ 를 누르면 그 곡이 좋아요로 저장됩니다. 곡 상세 페이지 위쪽에도 큰 하트가 있습니다. Music 탭의 **♥ 좋아요**에서 모아 볼 수 있고, 최근 좋아요 순 / 재생 수 순 / 처음 들은 순으로 정렬하거나 **처음 들은 해**로 거를 수 있습니다 (예: 올해 처음 들은 곡 중 좋았던 곡).
+
+곡은 이름(대소문자·띄어쓰기·기호 무시)과 아티스트로 알아봅니다. 그래서 같은 곡이 크레딧 표기만 다르게 기록돼 있어도 하나로 세고, 병합으로 표기가 바뀌어도 하트가 유지됩니다. 기록에서 못 찾는 곡은 목록 아래 "기록에서 찾지 못한 곡"에 따로 남습니다. 목록은 `data/favorites.json`에 저장됩니다.
+
+이미 정리해 둔 목록이 있다면 `곡명 - 아티스트`를 한 줄에 하나씩 적은 파일로 한꺼번에 가져올 수 있습니다. 기본은 매칭 결과만 보여 주는 dry-run이고, `--apply`를 붙이면 저장합니다 (저장 전에 기존 파일을 `.bak`으로 백업). 기록에 다른 표기로 들어 있어 못 찾는 곡은 앱에서 검색해 직접 ♥ 를 누르세요.
+
+```bash
+python3 scripts/import_favorites.py list.txt          # 매칭 결과만 확인
+python3 scripts/import_favorites.py list.txt --apply  # 저장
+```
 
 ## 스크로블 전처리 (`scripts/preprocess.py`)
 

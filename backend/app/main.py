@@ -46,6 +46,7 @@ from app.analysis.decades import build_decades, list_albums
 from app.analysis.race import build_race
 from app.analysis.fun_facts import KST, build_facts
 from app.env_config import get_config_status, save_config
+from app.analysis import favorites
 from app.deps_install import install_deps
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
@@ -1097,6 +1098,37 @@ def cover_check(limit: int = 30, top: int = 300):
 
 @app.get("/api/artist-art")
 def artist_art(artist: str = ""):
+FAVORITES_PATH = DATA_DIR / favorites.FILE_NAME
+
+
+@app.get("/api/favorites")
+def favorites_list():
+    """좋아요한 곡 목록 (최근에 누른 순). 기록이 없는 곡도 found=False 로 남겨 둔다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return {"items": favorites.list_favorites(FAVORITES_PATH, df)}
+
+
+class FavoriteBody(BaseModel):
+    artist: str | None = None
+    track: str
+    favorite: bool = True
+
+
+@app.post("/api/favorites")
+def favorites_set(body: FavoriteBody):
+    """곡 하나의 좋아요를 켜거나 끈다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    try:
+        changed = favorites.set_favorite(FAVORITES_PATH, df, body.artist, body.track, body.favorite)
+    except ValueError as e:
+        return {"error": str(e)}
+    return {"ok": True, "changed": changed, "items": favorites.list_favorites(FAVORITES_PATH, df)}
+
+
     """아티스트 사진 주소를 반환한다. 사용자가 직접 올린 사진이 있으면 그것을, 없으면 Deezer 검색(디스크 캐시)을 쓴다."""
     manual = cover_overrides.get_url("artist", artist)
     if manual:

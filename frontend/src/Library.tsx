@@ -7,6 +7,7 @@ import { ConsistencyLine, Sparkline, type ConsistencyResult, type TopItem } from
 import { DiscoveryList } from "./DiscoveryList";
 import { Num, Skeleton } from "./motion";
 import { ShareButton } from "./Share";
+import { FavoritesView, HeartButton } from "./Favorites";
 import { CAT } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
 import { MissingArtists } from "./ArtistFix";
@@ -59,6 +60,7 @@ type View =
   | { type: "top" }
   | { type: "list"; category: Category }
   | { type: "covers" }
+  | { type: "favorites" }
   | { type: "artists" }
   | { type: "merge"; target?: "artist" | "album" | "track"; artist?: string }
   | { type: "artist"; name: string }
@@ -206,6 +208,13 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
         </button>
         {(["artist", "album", "track"] as Category[]).map(catButton)}
         <button
+          onClick={() => setStack([{ type: "favorites" }])}
+          title="좋아요(♥)한 곡 모아 보기"
+          style={{ padding: "0.35rem 0.9rem", fontWeight: view.type === "favorites" ? 700 : 400, border: view.type === "favorites" ? "2px solid #e0556b" : "1px solid #666", color: view.type === "favorites" ? "#e0556b" : undefined }}
+        >
+          ♥ 좋아요
+        </button>
+        <button
           onClick={() => setStack([{ type: "merge", target: "artist" }])}
           title="이름이 다르게 적힌 같은 아티스트·앨범·곡을 하나로 합치기"
           style={{ padding: "0.35rem 0.9rem", marginLeft: "auto", fontWeight: view.type === "merge" ? 700 : 400, border: view.type === "merge" ? "2px solid #8884d8" : "1px solid #666" }}
@@ -289,6 +298,7 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
         />
       )}
       {view.type === "covers" && <MissingCovers />}
+      {view.type === "favorites" && <FavoritesView onOpen={(f) => go({ type: "track", name: f.name, artist: f.artist, album: null })} />}
       {view.type === "artists" && <MissingArtists />}
       {view.type === "merge" && (
         <>
@@ -722,6 +732,7 @@ function TrackView({
             )}
           </div>
         </div>
+        <HeartButton artist={head.artist} name={head.name} size={28} />
         <ShareButton spec={{ kind: "track", name: head.name, artist: head.artist, album: scope }} />
       </div>
       <div style={{ display: "flex", gap: "1rem 2rem", flexWrap: "wrap", margin: "1.2rem 0" }}>

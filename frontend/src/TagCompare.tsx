@@ -111,7 +111,7 @@ export function TagDistributionCard({
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis type="number" unit="%" />
               <YAxis dataKey="tag" type="category" width={150} interval={0} tick={{ fontSize: 13 }} />
-              <Tooltip formatter={(v: number, name: string) => [`${v}%`, name]} />
+              <Tooltip formatter={(v, name) => [`${v}%`, String(name)]} />
               <Legend />
               <Bar dataKey="base" name={`기준 · ${baseLabel}`} fill={BASE_COLOR} fillOpacity={0.55} stroke={BASE_COLOR} barSize={BAR} />
               <Bar dataKey="compare" name={`비교 · ${monthLabel}`} fill={CMP_COLOR} fillOpacity={0.55} stroke={CMP_COLOR} barSize={BAR} />

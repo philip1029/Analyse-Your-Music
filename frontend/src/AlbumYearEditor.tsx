@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BASE_URL } from "./config";
 import { LINE } from "./RankRow";
+import { RymLink } from "./RymLink";
 import { CAT, MUTED } from "./theme";
 
 // 연대별 음악의 발매연도를 직접 입력·수정하는 패널. 저장하면 config/album_years.txt 에 적히고 자동 조회보다 항상 우선한다.
@@ -57,6 +58,11 @@ function Row({ item, onSaved }: { item: Item; onSaved: (next: Item | null, chang
         <div style={{ flex: 1, minWidth: 200 }}>
           <div style={{ fontWeight: 600, overflowWrap: "anywhere" }}>{item.album}</div>
           <div style={{ color: MUTED, fontSize: "0.82rem", overflowWrap: "anywhere" }}>{item.artist} · {item.plays.toLocaleString()}회</div>
+          {/* 연도를 모르는 앨범은 RateYourMusic 에서 찾아볼 수 있게 한다: 아티스트+제목 검색과 제목만 검색 */}
+          <div style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+            <RymLink term={`${item.artist} ${item.album}`} type="release" title={`RateYourMusic에서 ‘${item.album}’ 검색 (아티스트 이름 포함)`} />
+            <RymLink term={item.album} type="release" label="제목만" title={`RateYourMusic에서 ‘${item.album}’ 을 제목만으로 검색`} />
+          </div>
         </div>
         <div style={{ minWidth: 110, textAlign: "right", fontSize: "0.85rem" }}>
           {item.year ? (

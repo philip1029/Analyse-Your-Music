@@ -40,18 +40,28 @@ export function useCountUp(target: number, duration = 800): number {
   return shown;
 }
 
-// 굴러가는 숫자. format 으로 "3,211시간 53분" 같은 표기를 줄 수 있다 (자릿수가 흔들리지 않게 고정폭 숫자)
+// 굴러가는 숫자. format 으로 "3,211시간 53분" 같은 표기를 줄 수 있다 (자릿수가 흔들리지 않게 고정폭 숫자).
+// 굴러가는 동안 폭이 변하면 문장의 줄바꿈이 매 프레임 다시 계산돼서 글이 아랫줄로 갔다 올라가며 어지럽다.
+// 그래서 최종 값을 보이지 않게 깔아 폭을 처음부터 고정하고, 보이는 값은 그 자리 안에서 굴러간다.
+// align: 문장 속 숫자는 "end"(뒤 글자에 붙어서 자란다), 카드의 큰 숫자는 기본 "start".
 export function Num({
   value,
   format = (n: number) => Math.round(n).toLocaleString(),
   duration,
+  align = "start",
 }: {
   value: number;
   format?: (n: number) => string;
   duration?: number;
+  align?: "start" | "end";
 }) {
   const shown = useCountUp(value, duration);
-  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{format(shown)}</span>;
+  return (
+    <span style={{ display: "inline-grid", fontVariantNumeric: "tabular-nums" }}>
+      <span aria-hidden style={{ gridArea: "1 / 1", visibility: "hidden" }}>{format(value)}</span>
+      <span style={{ gridArea: "1 / 1", textAlign: align === "end" ? "right" : "left" }}>{format(shown)}</span>
+    </span>
+  );
 }
 
 // 불러오는 동안 보여 줄 빛이 지나가는 자리 표시 막대

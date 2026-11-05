@@ -5,6 +5,7 @@ import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
 import { DecadeCard } from "./DecadeCard";
 import { TopCards } from "./TopCards";
+import { ReplayButton } from "./ReplayStory";
 import { FunFactCard } from "./FunFactCard";
 import { TagDistributionCard } from "./TagCompare";
 import { RaceTab } from "./Race";
@@ -13,6 +14,7 @@ import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
 import { Reveal, Skeleton, prefersReducedMotion, useInView } from "./motion";
 import { RankRow } from "./RankRow";
+import { MetaBar } from "./MetaBar";
 import { RefreshBar } from "./RefreshBar";
 import { SearchBox } from "./Search";
 import { AppleFiles } from "./AppleFiles";
@@ -149,7 +151,7 @@ const TIP = {
 };
 const TAG_COLORS = ["#c490ff", "#61d4b6", "#469df8", "#ffcace", "#fa233b", "#ffb86b", "#9be564", "#ff7eb6"];
 
-const hourKo = (h: number) => `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}시`;
+const hourKo = (h: number) => (h === 0 ? "자정" : h === 12 ? "정오" : `${h < 12 ? "오전" : "오후"} ${h % 12}시`);
 const peakOf = (xs: ChartPoint[]) => (xs.length ? xs.reduce((a, b) => (b.count > a.count ? b : a)) : null);
 
 // 선택한 기간이 한 해 / 한 달 / 월~일 한 주 하나와 정확히 같으면 그 종류와 기준값(anchor)을 돌려준다
@@ -700,11 +702,11 @@ const handleCopyPrompt = () => {
   const [libraryRequest, setLibraryRequest] = useState<LibraryRequest | null>(null);
   const openInLibrary = (target: LibraryTarget) => {
     setLibraryRequest({ id: Date.now(), target });
-    goTo("music");
+    goTo("music", "library");
   };
   const openListInLibrary = (category: Cat, sort: SortMode) => {
     setLibraryRequest({ id: Date.now(), list: { category, sort } });
-    goTo("music");
+    goTo("music", "library");
   };
 
   const [invalidating, setInvalidating] = useState(false);
@@ -725,18 +727,26 @@ const handleCopyPrompt = () => {
   const [reached, setReached] = useState<Set<TabId>>(() => new Set<TabId>(["overview"]));
   const [current, setCurrent] = useState<TabId>("overview");
   const reach = useCallback((id: TabId) => setReached((prev) => (prev.has(id) ? prev : new Set(prev).add(id))), []);
+  // elementId: 구역 맨 위가 아니라 구역 안의 특정 자리(예: 음악 구역의 라이브러리)로 갈 때
   const goTo = useCallback(
-    (id: TabId) => {
+    (id: TabId, elementId?: string) => {
       reach(id);
-      const go = (behavior: ScrollBehavior) => document.getElementById(id)?.scrollIntoView({ behavior, block: "start" });
+      const target = () => document.getElementById(elementId ?? id) ?? document.getElementById(id);
+      const go = (behavior: ScrollBehavior) => target()?.scrollIntoView({ behavior, block: "start" });
       go("smooth");
-      // 도착한 구역의 내용이 늦게 채워지면 위치가 밀리므로, 아직 그 근처에 있을 때만 두 번 바로잡는다
-      const fix = () => {
-        const top = document.getElementById(id)?.getBoundingClientRect().top;
-        if (top !== undefined && Math.abs(top) < 700) go("auto");
+      // 이동하는 동안 지나는 구역들이 차례로 그려지며 높이가 커져 목표가 밀린다. 사용자가 직접 스크롤하지 않았다면 몇 번 다시 맞춘다.
+      let userMoved = false;
+      const mark = () => {
+        userMoved = true;
       };
-      window.setTimeout(fix, 700);
-      window.setTimeout(fix, 1600);
+      const events = ["wheel", "touchstart", "keydown", "mousedown"] as const;
+      events.forEach((e) => window.addEventListener(e, mark, { passive: true }));
+      [500, 1100, 1900, 3000].forEach((ms, i, all) =>
+        window.setTimeout(() => {
+          if (!userMoved) go("auto");
+          if (i === all.length - 1) events.forEach((e) => window.removeEventListener(e, mark));
+        }, ms)
+      );
     },
     [reach]
   );
@@ -1100,30 +1110,12 @@ const handleCopyPrompt = () => {
           } else if (titles && (titles.tracks || titles.albums)) {
             parts.push(`제목 표기 통일 곡 ${titles.tracks ?? 0}행 · 앨범 ${titles.albums ?? 0}행`);
           }
-          // 새 곡의 길이 조회 결과
-          const durs = data.durations as { error?: string; found?: number; unknown?: number; remaining?: number } | null | undefined;
-          if (durs?.error) {
-            parts.push(`곡 길이 조회 실패: ${durs.error}`);
-          } else if (durs && (durs.found || durs.unknown)) {
-            parts.push(`곡 길이 ${durs.found ?? 0}곡 추가${durs.unknown ? ` (못 찾음 ${durs.unknown})` : ""}${durs.remaining ? ` · 남은 ${durs.remaining}곡은 다음에` : ""}`);
-          }
-          // 새 아티스트 태그 조회 결과
-          const tagRes = data.tags as { error?: string; fetched?: number; remaining?: number } | null | undefined;
-          if (tagRes?.error) {
-            parts.push(`태그 조회 실패: ${tagRes.error}`);
-          } else if (tagRes?.fetched) {
-            parts.push(`아티스트 태그 ${tagRes.fetched}명 추가${tagRes.remaining ? ` · 남은 ${tagRes.remaining}명은 다음에` : ""}`);
-          }
-          // 새 앨범 발매연도(Music by decade)는 백그라운드로 채워지므로 시작하지 못했을 때만 알린다
-          const yearRes = data.album_years as { error?: string } | null | undefined;
-          if (yearRes?.error) {
-            parts.push(`앨범 연도 조회를 시작하지 못했어요: ${yearRes.error}`);
-          }
+          // 곡 길이·태그·발매연도는 스크로블이 반영된 뒤 백그라운드로 채운다 (MetaBar 가 진행과 결과를 보여 준다)
           setRefreshMessage(
             `업데이트 완료!${parts.length ? ` (${parts.join(" · ")})` : ""} 잠시 후 새로고침됩니다...`
           );
           // 정리된 행이 있거나 전처리·제목 통일이 실패했을 때는 결과를 읽을 시간을 더 준다.
-          const needsTime = Boolean(pre?.error || pre?.removed || arts?.error || arts?.changed_rows || titles?.error || titles?.tracks || titles?.albums || durs?.error);
+          const needsTime = Boolean(pre?.error || pre?.removed || arts?.error || arts?.changed_rows || titles?.error || titles?.tracks || titles?.albums);
           setTimeout(() => {
             window.location.reload();
           }, needsTime ? 4000 : 1000);
@@ -1281,6 +1273,9 @@ const handleCopyPrompt = () => {
         </div>
       )}
 
+      {/* 스크로블 반영 뒤 백그라운드로 채우는 곡 길이·태그·발매연도 */}
+      <MetaBar />
+
       {/* 새로고침 진행 상황 */}
       {(refreshing || refreshMessage) && (
         <div className="aym-panel" style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", marginTop: "1rem" }}>
@@ -1305,7 +1300,7 @@ const handleCopyPrompt = () => {
 
       {/* ───────── 01 요약 ───────── */}
       <section id="overview" className="aym-sec" style={overviewReached ? undefined : { minHeight: 700 }}>
-        <Eyebrow id="overview" actions={<ShareButton spec={{ kind: "period", card: "summary", period: "all" }} label="🖼 요약 이미지 만들기" />} />
+        <Eyebrow id="overview" actions={<><ReplayButton /><ShareButton spec={{ kind: "period", card: "summary", period: "all" }} label="🖼 요약 이미지 만들기" /></>} />
         {overviewReached && (
           <>
             <OverviewCards

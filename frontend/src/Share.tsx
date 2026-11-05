@@ -627,7 +627,7 @@ function drawSubject(ctx: Ctx, c: SubjectCard, t: Theme, username: string | null
 // ---------------------------------------------------------------- 대화상자 / 공유 버튼
 
 export type ShareSpec =
-  | { kind: "period"; card: CardType; period?: Period; cat?: Cat; metric?: Metric }
+  | { kind: "period"; card: CardType; period?: Period; cat?: Cat; metric?: Metric; anchor?: string }   // anchor: 기간 목록에서 처음 고를 기간 (예: 연간이면 "2026")
   | { kind: "album"; name: string; artist: string | null }
   | { kind: "artist"; name: string }
   | { kind: "track"; name: string; artist: string | null; album?: string | null };
@@ -694,8 +694,9 @@ function ShareDialog({ spec, onClose }: { spec: ShareSpec; onClose: () => void }
         if (cancelled || d.error) return;
         const list = d.periods as PeriodOption[];
         setPeriods(list);
-        // 기본값: 마지막으로 끝난 기간 (진행 중·일부만 있는 기간이 아니면 그 기간, 없으면 가장 최근)
-        setAnchor((list.find((p) => !p.partial) ?? list[0])?.key ?? "");
+        // 기본값: 요청받은 기간(있으면) → 마지막으로 끝난 기간 (진행 중·일부만 있는 기간이 아니면 그 기간, 없으면 가장 최근)
+        const want = spec.kind === "period" && spec.period === period ? spec.anchor : undefined;
+        setAnchor((want && list.some((p) => p.key === want) ? want : (list.find((p) => !p.partial) ?? list[0])?.key) ?? "");
       })
       .catch((e) => setError(e.message));
     return () => {

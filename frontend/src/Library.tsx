@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
 import { LINE, RankRow, fmtDuration } from "./RankRow";
@@ -6,9 +6,10 @@ import { agoText, fmtHM } from "./format";
 import { ConsistencyLine, Sparkline, type ConsistencyResult, type TopItem } from "./Consistency";
 import { DiscoveryList } from "./DiscoveryList";
 import { Num, Skeleton } from "./motion";
+import { RymLink } from "./RymLink";
 import { ShareButton } from "./Share";
 import { FavoritesView, HeartButton } from "./Favorites";
-import { CAT, catPill } from "./theme";
+import { CAT } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
 import { MissingArtists } from "./ArtistFix";
 import { MergeArtists } from "./ArtistMerge";
@@ -134,6 +135,57 @@ export type LibraryTarget =
 // target: 상세 페이지로 바로 이동 / list: 정렬을 정해 목록으로 이동
 export type LibraryRequest = { id: number; target?: LibraryTarget; list?: { category: Category; sort: SortMode } };
 
+// 병합·누락 관리처럼 자주 안 쓰는 정리 기능은 한 메뉴로 모은다
+function ToolsMenu({ current, onPick }: { current: View["type"]; onPick: (v: View) => void }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false);
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const tools: { icon: string; title: string; desc: string; view: View }[] = [
+    { icon: "🔗", title: "병합", desc: "이름이 다르게 적힌 같은 아티스트·앨범·곡을 하나로 합쳐요", view: { type: "merge", target: "artist" } },
+    { icon: "👤", title: "아티스트 누락", desc: "아티스트가 비어 있는 기록을 직접 채워요", view: { type: "artists" } },
+    { icon: "🖼", title: "커버 누락", desc: "자동으로 못 찾은 커버를 직접 지정해요", view: { type: "covers" } },
+  ];
+  const active = tools.some((t) => t.view.type === current);
+  return (
+    <div ref={box} style={{ position: "relative", marginLeft: "auto" }}>
+      <button onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open} style={active ? { background: "var(--text)", color: "#111" } : undefined}>
+        정리 도구 <span aria-hidden style={{ opacity: 0.7 }}>▾</span>
+      </button>
+      {open && (
+        <div role="menu" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 60, width: 320, maxWidth: "calc(100vw - 28px)", padding: "0.4rem", borderRadius: 20, background: "#18181b", border: "1px solid var(--line)", boxShadow: "0 20px 60px rgba(0,0,0,0.6)" }}>
+          {tools.map((t) => (
+            <button
+              key={t.title}
+              role="menuitem"
+              onClick={() => {
+                onPick(t.view);
+                setOpen(false);
+              }}
+              style={{ display: "flex", gap: "0.8rem", alignItems: "flex-start", width: "100%", textAlign: "left", background: t.view.type === current ? "var(--surface-2)" : "transparent", borderRadius: 14, padding: "0.65rem 0.8rem", fontWeight: 500 }}
+            >
+              <span aria-hidden style={{ fontSize: "1.2rem", lineHeight: 1.3 }}>{t.icon}</span>
+              <span>
+                <span style={{ display: "block", fontWeight: 700 }}>{t.title}</span>
+                <span style={{ display: "block", fontSize: "0.8rem", color: "var(--text-3)", lineHeight: 1.4 }}>{t.desc}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Library({ query, request }: { query: (extra?: Record<string, string | number>) => string; request?: LibraryRequest | null }) {
   const [stack, setStack] = useState<View[]>([{ type: "top" }]);
   const [sort, setSort] = useState<SortMode>("plays");          // 목록·Top 10 정렬 기준
@@ -168,88 +220,50 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
     t.kind === "artist" ? go({ type: "artist", name: t.name }) : t.kind === "album" ? go({ type: "album", name: t.name, artist: t.artist }) : go({ type: "track", name: t.name, artist: t.artist, album: t.album ?? null });
 
   const atRoot = stack.length === 1;
-  const catButton = (c: Category) => {
-    const active = atRoot && view.type === "list" && view.category === c;
-    return (
-      <button
-        key={c}
-        onClick={() => setStack([{ type: "list", category: c }])}
-        style={catPill(active, CAT[c].main)}
-      >
-        {c === "artist" ? "Artists" : c === "album" ? "Albums" : "Tracks"}
-      </button>
-    );
-  };
-
+  const CAT_LABEL: Record<Category, string> = { artist: "아티스트", album: "앨범", track: "트랙" };
   const showSortBar = view.type === "top" || view.type === "list";
   const sortInfo = SORTS.find((x) => x.id === sort);
 
   return (
-    <div style={{ textAlign: "left", maxWidth: 980, margin: "0 auto" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
-        {stack.length > 1 && (
-          <button onClick={back} style={{ padding: "0.35rem 0.8rem" }}>
-            ← 뒤로
-          </button>
-        )}
-        <button
-          onClick={() => setStack([{ type: "top" }])}
-          style={{ padding: "0.35rem 0.9rem", fontWeight: atRoot && view.type === "top" ? 700 : 400, border: atRoot && view.type === "top" ? "2px solid #8884d8" : "1px solid #666" }}
-        >
-          Top 10
-        </button>
-        {(["artist", "album", "track"] as Category[]).map(catButton)}
-        <button
-          onClick={() => setStack([{ type: "favorites" }])}
-          title="좋아요(♥)한 곡 모아 보기"
-          style={{ padding: "0.35rem 0.9rem", fontWeight: view.type === "favorites" ? 700 : 400, border: view.type === "favorites" ? "2px solid #e0556b" : "1px solid #666", color: view.type === "favorites" ? "#e0556b" : undefined }}
-        >
-          ♥ 좋아요
-        </button>
-        <button
-          onClick={() => setStack([{ type: "merge", target: "artist" }])}
-          title="이름이 다르게 적힌 같은 아티스트·앨범·곡을 하나로 합치기"
-          style={{ padding: "0.35rem 0.9rem", marginLeft: "auto", fontWeight: view.type === "merge" ? 700 : 400, border: view.type === "merge" ? "2px solid #8884d8" : "1px solid #666" }}
-        >
-          병합
-        </button>
-        <button
-          onClick={() => setStack([{ type: "artists" }])}
-          title="아티스트가 비어 있는 기록을 직접 채우기"
-          style={{ padding: "0.35rem 0.9rem", fontWeight: view.type === "artists" ? 700 : 400, border: view.type === "artists" ? "2px solid #8884d8" : "1px solid #666" }}
-        >
-          아티스트 누락
-        </button>
-        <button
-          onClick={() => setStack([{ type: "covers" }])}
-          title="자동으로 못 찾은 커버를 직접 지정"
-          style={{ padding: "0.35rem 0.9rem", fontWeight: view.type === "covers" ? 700 : 400, border: view.type === "covers" ? "2px solid #8884d8" : "1px solid #666" }}
-        >
-          커버 누락
-        </button>
+    <div id="library" style={{ textAlign: "left", maxWidth: 980, margin: "0 auto" }}>
+      <div className="aym-h3">
+        <h3>라이브러리</h3>
+        <span>아티스트·앨범·곡 순위와 상세</span>
+      </div>
+
+      {/* 보기 전환: 하나의 알약 묶음 + 오른쪽에 정리 도구 메뉴 */}
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.9rem" }}>
+        {stack.length > 1 && <button onClick={back}>← 뒤로</button>}
+        <div className="aym-seg scroll" role="group" aria-label="보기">
+          <button aria-pressed={atRoot && view.type === "top"} onClick={() => setStack([{ type: "top" }])}>Top 10</button>
+          {(["artist", "album", "track"] as Category[]).map((c) => (
+            <button key={c} aria-pressed={atRoot && view.type === "list" && view.category === c} onClick={() => setStack([{ type: "list", category: c }])}>
+              <i aria-hidden style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: CAT[c].main, marginRight: 7 }} />
+              {CAT_LABEL[c]}
+            </button>
+          ))}
+          <button aria-pressed={view.type === "favorites"} onClick={() => setStack([{ type: "favorites" }])} title="좋아요(♥)한 곡 모아 보기">♥ 좋아요</button>
+        </div>
+        <ToolsMenu current={view.type} onPick={(v) => setStack([v])} />
       </div>
 
       {showSortBar && (
-        <div style={{ marginBottom: "0.8rem" }}>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-            {SORTS.map((o) => (
-              <button
-                key={o.id}
-                onClick={() => setSort(o.id)}
-                style={{ padding: "0.25rem 0.7rem", fontSize: "0.85rem", fontWeight: sort === o.id ? 700 : 400, border: sort === o.id ? "2px solid #8884d8" : "1px solid #666" }}
-              >
-                {o.label}
-              </button>
-            ))}
+        <div style={{ marginBottom: "0.9rem" }}>
+          <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+            <div className="aym-seg sm scroll" role="group" aria-label="정렬">
+              {SORTS.map((o) => (
+                <button key={o.id} aria-pressed={sort === o.id} onClick={() => setSort(o.id)}>{o.label}</button>
+              ))}
+            </div>
             {view.type === "list" && (sort === "plays" || sort === "time") && (
               <span style={{ marginLeft: "auto" }}>
                 <ShareButton spec={{ kind: "period", card: "top", period: "all", cat: view.category, metric: sort }} label="🖼 Top 이미지" />
               </span>
             )}
           </div>
-          {sortInfo?.hint && <p style={{ color: "#999", fontSize: "0.8rem", margin: "0.5rem 0 0" }}>{sortInfo.hint}</p>}
+          {sortInfo?.hint && <p style={{ color: "var(--text-3)", fontSize: "0.8rem", margin: "0.6rem 0 0" }}>{sortInfo.hint}</p>}
           {(sort === "even" || sort === "biased") && (
-            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", margin: "0.6rem 0 0", color: "#999", fontSize: "0.85rem" }}>
+            <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "center", margin: "0.6rem 0 0", color: "var(--text-3)", fontSize: "0.85rem" }}>
               <label>
                 최소 재생{" "}
                 <input type="number" min={5} value={minPlays} style={{ width: 64 }} onChange={(e) => setMinPlays(Math.max(5, Number(e.target.value) || 5))} />
@@ -294,19 +308,13 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
       {view.type === "artists" && <MissingArtists />}
       {view.type === "merge" && (
         <>
-          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-            {(["artist", "album", "track"] as const).map((k) => {
-              const active = (view.target ?? "artist") === k;
-              return (
-                <button
-                  key={k}
-                  onClick={() => setStack([{ type: "merge", target: k, artist: view.artist }])}
-                  style={catPill(active, CAT[k].main)}
-                >
-                  {k === "artist" ? "아티스트" : k === "album" ? "앨범" : "곡"}
-                </button>
-              );
-            })}
+          <div className="aym-seg" role="group" aria-label="병합 대상" style={{ marginBottom: "1rem" }}>
+            {(["artist", "album", "track"] as const).map((k) => (
+              <button key={k} aria-pressed={(view.target ?? "artist") === k} onClick={() => setStack([{ type: "merge", target: k, artist: view.artist }])}>
+                <i aria-hidden style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", background: CAT[k].main, marginRight: 7 }} />
+                {k === "artist" ? "아티스트" : k === "album" ? "앨범" : "곡"}
+              </button>
+            ))}
           </div>
           {(view.target ?? "artist") === "artist" ? (
             <MergeArtists onPair={(a) => setStack([{ type: "merge", target: "album", artist: a }])} />
@@ -580,6 +588,7 @@ function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<
       <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
         <Cover key={coverVersion} kind="artist" artist={data.name} size={72} />
         <h2 style={{ margin: 0, flex: 1 }}>{data.name}</h2>
+        <RymLink term={data.name} type="artist" />
         <button onClick={() => setEditing({ kind: "artist", artist: data.name, label: data.name })} title="아티스트 사진을 직접 지정" style={{ padding: "0.3rem 0.8rem", fontSize: "0.85rem" }}>
           사진 변경
         </button>
@@ -625,7 +634,11 @@ function AlbumView({
         <Cover key={coverVersion} kind="album" artist={data.artist} album={data.name} size={72} />
         <div style={{ flex: 1 }}>
           <h2 style={{ margin: 0 }}>{data.name}</h2>
-          {data.artist && <LinkButton onClick={() => onArtist(data.artist as string)}>{data.artist}</LinkButton>}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap", marginTop: 2 }}>
+            {data.artist && <LinkButton onClick={() => onArtist(data.artist as string)}>{data.artist}</LinkButton>}
+            <RymLink term={`${data.artist ?? ""} ${data.name}`} type="release" title={`RateYourMusic에서 ‘${data.name}’ 앨범 검색 (아티스트 이름 포함)`} />
+            <RymLink term={data.name} type="release" label="제목만" title={`RateYourMusic에서 ‘${data.name}’ 앨범을 제목만으로 검색`} />
+          </div>
         </div>
         {data.artist && (
           <button
@@ -707,7 +720,8 @@ function TrackView({
             {head.name}
             {head.duration ? <span style={{ fontWeight: 400, color: "#999" }}> ({fmtDuration(head.duration)})</span> : null}
           </h2>
-          <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexWrap: "wrap" }}>
+            <RymLink term={`${head.artist ?? ""} ${head.name}`} type="song" title={`RateYourMusic에서 ‘${head.name}’ 곡 검색 (아티스트 이름 포함)`} />
             {head.artist && <LinkButton onClick={() => onArtist(head.artist as string)}>{head.artist}</LinkButton>}
             {head.album && (
               <span style={{ color: "#999" }}>

@@ -181,7 +181,7 @@ a { color: inherit; }
 .aym-sec { padding-top: 56px; min-height: 240px; }
 .aym-sec > .aym-eyebrow:first-child { margin-top: 0; }
 .aym-eyebrow { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em; color: var(--key); }
-.aym-eyebrow span { color: var(--text-3); font-family: var(--num); }
+.aym-eyebrow > span { color: var(--text-3); font-family: var(--num); }
 .aym-eyebrow .aym-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
 /* 문장 해설 (A안): 숫자만 흰색으로 */
@@ -209,6 +209,13 @@ a { color: inherit; }
 .aym-seg button[aria-pressed="true"] { background: var(--text); color: #111; }
 .aym-seg button:hover:not([aria-pressed="true"]):not(:disabled) { background: var(--surface-2); }
 
+.aym-seg button { white-space: nowrap; }
+.aym-seg.scroll { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.aym-seg.scroll::-webkit-scrollbar { display: none; }
+/* 작은 보조 묶음(정렬 등): 보기 전환 묶음과 구분되게 테두리만 */
+.aym-seg.sm { background: transparent; border: 1px solid var(--line); }
+.aym-seg.sm button { font-size: 0.82rem; padding: 0.25rem 0.85rem; }
+.aym-seg.sm button[aria-pressed="true"] { background: var(--surface-3); color: var(--text); }
 .aym-muted { color: var(--text-3); }
 
 /* ═════════════ 폰 ═════════════ */
@@ -278,3 +285,41 @@ a { color: inherit; }
   html { scroll-behavior: auto; }
   .aym-rise, .aym-tab, .aym-bar, .aym-spark, .aym-cell, .aym-skeleton { animation: none !important; }
 }
+
+/* ═════════════ 연말 리플레이 스토리 ═════════════ */
+.aym-story-back { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, 0.78); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); display: flex; align-items: center; justify-content: center; gap: 18px; animation: aym-fade 200ms ease-out both; }
+/* 글자·간격은 카드 너비 기준(cqw)이라 폰·PC 어디서나 같은 비율로 보인다 */
+.aym-story { position: relative; container-type: size; width: min(100vw, calc(min(94svh, 920px) * 9 / 16)); height: min(100svh, min(94svh, 920px)); border-radius: 28px; overflow: hidden; background: #0e0e10; color: #fff; box-shadow: 0 30px 100px rgba(0, 0, 0, 0.7); user-select: none; }
+.aym-story-slide { position: absolute; inset: 0; z-index: 2; pointer-events: none; padding: 16cqw 7cqw 7cqw; display: flex; flex-direction: column; justify-content: center; overflow: hidden;
+  background: radial-gradient(130% 80% at 50% -5%, color-mix(in srgb, var(--tint) 62%, #0e0e10) 0%, color-mix(in srgb, var(--tint) 18%, #0e0e10) 55%, #0e0e10 100%); animation: aym-fade 320ms ease-out both; }
+.aym-story-slide::before { content: ""; position: absolute; width: 90cqw; height: 90cqw; border-radius: 50%; right: -30cqw; top: -20cqw; background: var(--tint); opacity: 0.28; filter: blur(18cqw); animation: aym-drift 9s ease-in-out infinite alternate; pointer-events: none; }
+@keyframes aym-drift { to { transform: translate(-14cqw, 10cqw) scale(1.15); } }
+.aym-story-slide > * { position: relative; }
+.aym-story-slide button, .aym-story-slide select, .aym-story-slide a { pointer-events: auto; }
+.aym-story-bars { position: absolute; top: 3cqw; left: 3cqw; right: 3cqw; display: flex; gap: 1cqw; z-index: 4; }
+.aym-story-bars i { flex: 1; height: 0.8cqw; min-height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.28); overflow: hidden; }
+.aym-story-bars b { display: block; height: 100%; width: 0; background: #fff; }
+.aym-story-bars .done b { width: 100%; }
+.aym-story-bars .on b { animation: aym-story-fill var(--dur) linear forwards; }
+@keyframes aym-story-fill { from { width: 0; } to { width: 100%; } }
+.aym-story-close { position: absolute; top: 6cqw; right: 3.5cqw; z-index: 5; width: 8cqw; height: 8cqw; min-width: 30px; min-height: 30px; padding: 0; border-radius: 50%; background: rgba(0, 0, 0, 0.35); font-size: 3.6cqw; line-height: 1; }
+.aym-story-tap { position: absolute; top: 0; bottom: 0; z-index: 1; cursor: pointer; }
+.aym-story-tap.left { left: 0; width: 33%; }
+.aym-story-tap.right { right: 0; width: 67%; }
+.aym-story-nav { width: 44px; height: 44px; min-width: 44px; padding: 0; border-radius: 50%; font-size: 1.8rem; line-height: 1; background: rgba(255, 255, 255, 0.1); }
+.aym-story-recap { display: grid; gap: 2.4cqw; }
+.aym-story-recap div { background: rgba(255, 255, 255, 0.1); border-radius: 3cqw; padding: 2.6cqw 3.6cqw; }
+.aym-story-recap small { display: block; font-size: 2.8cqw; font-weight: 700; letter-spacing: 0.08em; color: rgba(255, 255, 255, 0.62); }
+.aym-story-recap b { display: block; font-size: 4.4cqw; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 700px) {
+  .aym-story-nav { display: none; }
+  .aym-story { width: 100vw; height: 100svh; border-radius: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aym-story-slide::before { animation: none; }
+  .aym-story-bars .on b { animation: none; width: 100%; }   /* 자동으로 넘어가지 않는다 (탭으로만 이동) */
+}
+
+/* RateYourMusic 검색 링크 */
+.aym-rym { display: inline-flex; align-items: center; gap: 3px; padding: 0.2rem 0.65rem; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: 0.75rem; font-weight: 700; text-decoration: none; white-space: nowrap; transition: background 0.15s, color 0.15s; }
+.aym-rym:hover { background: var(--surface-3); color: var(--text); }

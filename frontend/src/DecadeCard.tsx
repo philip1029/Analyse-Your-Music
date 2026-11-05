@@ -174,7 +174,7 @@ export function DecadeCard({ query }: { query: (extra?: Record<string, string | 
 
       <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", flexWrap: "wrap", margin: "0.5rem 0" }}>
         {cov.albums_unchecked > 0 && (
-          <button type="button" onClick={fill} disabled={filling} style={{ ...pill(false, CAT.album.main), opacity: filling ? 0.6 : 1 }}>
+          <button type="button" onClick={fill} disabled={filling} style={{ opacity: filling ? 0.6 : 1 }}>
             {filling ? "조회 중… (최대 1분)" : `🔎 연도 더 채우기 (아직 조회 전 ${cov.albums_unchecked.toLocaleString()}개 중 재생 많은 순 25개)`}
           </button>
         )}
@@ -182,7 +182,7 @@ export function DecadeCard({ query }: { query: (extra?: Record<string, string | 
       </div>
 
       <div style={{ margin: "0.4rem 0" }}>
-        <button type="button" onClick={() => setEditing((e) => !e)} style={pill(editing, CAT.artist.main)}>
+        <button type="button" onClick={() => setEditing((e) => !e)} style={editing ? { background: "var(--text)", color: "#111" } : undefined}>
           ✏️ 연도 직접 입력·수정{cov.total_albums > cov.known_albums ? ` (연도 모르는 앨범 ${(cov.total_albums - cov.known_albums).toLocaleString()}개)` : ""}
         </button>
       </div>

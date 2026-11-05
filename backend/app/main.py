@@ -43,7 +43,7 @@ from app.analysis.taste import (
 from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
 from app import apple_files, album_years
-from app.refresh_progress import RefreshProgress
+from app.refresh_progress import META_STEPS, RefreshProgress
 from app.analysis.decades import build_decades, list_albums
 from app.analysis.race import build_race
 from app.analysis import favorites
@@ -570,7 +570,8 @@ FILL_LIMIT = 60   # 새로고침 한 번에 길이를 조회할 최대 곡 수
 ALBUM_YEAR_REFRESH_LIMIT = 40   # 새로고침 뒤 백그라운드로 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 앨범당 1~2초)
 
 
-refresh_progress = RefreshProgress()
+refresh_progress = RefreshProgress()                # 1) 스크로블 묶음 (받기 → 정리 → 표기 통일)
+meta_progress = RefreshProgress(META_STEPS)         # 2) 부가 정보 묶음 (곡 길이 → 태그 → 발매연도), 스크로블 반영 뒤 백그라운드
 _PROGRESS_LINE = re.compile(r"\[progress\] (\d+)/(\d+)")
 
 
@@ -623,14 +624,31 @@ def refresh_status():
     return refresh_progress.snapshot()
 
 
+@app.get("/api/refresh/meta-status")
+def refresh_meta_status():
+    """부가 정보(곡 길이·태그·발매연도) 채우기의 진행 상황과, 끝났다면 그 결과."""
+    return meta_progress.snapshot()
+
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent.parent / "scripts"
+
+
 @app.post("/api/refresh")
 def refresh_scrobbles():
+    """스크로블을 받아 정리하고(1단계) 바로 응답한다. 곡 길이·태그·발매연도(2단계)는 응답 뒤에 백그라운드로 채운다."""
+    if meta_progress.snapshot()["running"]:
+        # 2단계가 같은 CSV 를 읽는 중에 1단계가 파일을 고치면 서로 어긋날 수 있어서 기다리게 한다
+        return {"success": False, "error": "곡 길이·태그·연도를 채우는 중이에요. 끝난 뒤에 다시 눌러 주세요."}
     if not refresh_progress.start():
         return {"success": False, "error": "이미 불러오는 중입니다. 끝날 때까지 기다려 주세요."}
     try:
-        return _refresh_scrobbles()
+        result = _refresh_scrobbles()
     finally:
         refresh_progress.finish()
+    if result.get("success") and meta_progress.start():
+        threading.Thread(target=_run_metadata, args=(_SCRIPTS_DIR,), daemon=True).start()
+        result["metadata"] = {"started": True}
+    return result
 
 
 def _refresh_scrobbles():
@@ -714,9 +732,25 @@ def _refresh_scrobbles():
     except Exception as e:  # noqa: BLE001
         titles = {"error": str(e)}
 
+    # 곡 길이·태그·발매연도는 여기서 기다리지 않는다: 응답 뒤에 _run_metadata 가 백그라운드로 채운다.
+    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "artists": artists_norm, "titles": titles}
+
+
+def _run_metadata(scripts_dir: Path) -> None:
+    """부가 정보 묶음을 돌리고 결과를 meta_progress 에 남긴다. 어떤 일이 있어도 진행 상태는 끝낸다."""
+    try:
+        meta_progress.set_result(_fill_metadata(scripts_dir / "callData.py"))
+    except Exception as e:  # noqa: BLE001
+        meta_progress.set_result({"error": str(e)})
+    finally:
+        meta_progress.finish()
+
+
+def _fill_metadata(script_path: Path) -> dict:
+    """스크로블 반영 뒤에 채우는 부가 정보: 새 곡 길이 → 새 아티스트 태그 → 새 앨범 발매연도. 모두 실패해도 스크로블 기록에는 영향이 없다."""
     # 새로 생긴 곡의 길이를 채운다 (이미 아는 곡은 건너뛰고, 한 번에 FILL_LIMIT 곡까지만 해서 버튼이 오래 걸리지 않게
     # 한다. 남은 곡은 다음에 불러올 때 이어서 한다). 길이를 못 찾아도 새로고침은 성공이다.
-    refresh_progress.begin("durations")
+    meta_progress.begin("durations")
     durations_result = None
     dur_script = script_path.with_name("fill_durations.py")
     try:
@@ -737,7 +771,7 @@ def _refresh_scrobbles():
         durations_result = {"error": str(e)}
 
     # 새 아티스트의 태그(장르)도 소량 채운다 (Taste 탭 분포가 일부 아티스트만 덮는 것을 줄인다). 실패해도 새로고침은 성공이다.
-    refresh_progress.begin("tags")
+    meta_progress.begin("tags")
     tags_result = None
     tag_script = script_path.with_name("fill_artist_tags.py")
     if os.environ.get("LASTFM_API_KEY"):
@@ -760,7 +794,7 @@ def _refresh_scrobbles():
 
     # 새 앨범의 발매연도(Music by decade)는 응답을 기다리게 하지 않고 백그라운드로 채운다. MusicBrainz 는 초당 1회 제한이라 앨범당
     # 1~2초가 걸려서, 기다리면 새로고침이 수십 초 멈춘 것처럼 보인다. 이미 채우는 중이면 스크립트가 잠금을 보고 바로 끝난다.
-    refresh_progress.begin("years")
+    meta_progress.begin("years")
     years_result = None
     years_script = script_path.with_name("fill_album_years.py")
     try:
@@ -774,7 +808,8 @@ def _refresh_scrobbles():
     except Exception as e:  # noqa: BLE001
         years_result = {"error": str(e)}
 
-    return {"success": True, "output": result.stdout[-2000:], "preprocess": preprocess, "artists": artists_norm, "titles": titles, "durations": durations_result, "tags": tags_result, "album_years": years_result}
+    return {"durations": durations_result, "tags": tags_result, "album_years": years_result}
+
 
 @app.get("/api/taste/evolution")
 def taste_evolution(

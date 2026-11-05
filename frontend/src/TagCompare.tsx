@@ -18,8 +18,16 @@ type Coverage = Pick<TagDistribution, "covered_artists" | "total_artists" | "cov
 type Compare = { error?: string; tags: { tag: string; base: number; compare: number; base_score: number; compare_score: number }[]; base: Coverage; compare: Coverage };
 type MonthInfo = { key: string; label: string; scrobbles: number; partial: boolean };
 
-const BASE_COLOR = "#ff7f50";
-const CMP_COLOR = "#4aa3ff";
+const BASE_COLOR = "#c490ff";
+const CMP_COLOR = "#469df8";
+const GRID = "rgba(255,255,255,0.08)";
+const TICK = { fill: "rgba(245,245,247,0.55)", fontSize: 13 };
+const TIP = {
+  contentStyle: { background: "#1b1b1f", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, color: "#f5f5f7" },
+  labelStyle: { color: "rgba(245,245,247,0.7)", fontWeight: 700 },
+  itemStyle: { color: "#f5f5f7" },
+  cursor: { fill: "rgba(255,255,255,0.05)" },
+};
 const BAR = 22;
 
 const covText = (c: Coverage) => `재생 ${c.total_plays ? Math.round((c.covered_plays / c.total_plays) * 100) : 0}% 반영 · 아티스트 ${c.covered_artists} / ${c.total_artists}명`;
@@ -76,10 +84,10 @@ export function TagDistributionCard({
 
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap" }}>
-        <h2 style={{ margin: 0 }}>
-          장르/태그 분포 {!comparing && <span style={{ fontSize: "0.8rem", color: "#888" }}>({covText(distribution)})</span>}
-        </h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap", margin: "2.2rem 0 0.8rem" }}>
+        <h3 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800 }}>
+          장르/태그 분포 {!comparing && <span style={{ fontSize: "0.8rem", color: "#888", fontWeight: 500 }}>({covText(distribution)})</span>}
+        </h3>
         <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.9rem" }}>
           <span style={{ color: MUTED }}>비교 월</span>
           <select
@@ -108,10 +116,10 @@ export function TagDistributionCard({
           </p>
           <ResponsiveContainer width="100%" height={Math.max(300, cmp.tags.length * 40 + 60)}>
             <BarChart data={cmp.tags} layout="vertical" barGap={-BAR} margin={{ right: 24 }}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis type="number" unit="%" />
-              <YAxis dataKey="tag" type="category" width={150} interval={0} tick={{ fontSize: 13 }} />
-              <Tooltip formatter={(v, name) => [`${v}%`, String(name)]} />
+              <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
+              <XAxis type="number" unit="%" tick={TICK} axisLine={false} tickLine={false} />
+              <YAxis dataKey="tag" type="category" width={150} interval={0} tick={TICK} axisLine={false} tickLine={false} />
+              <Tooltip formatter={(v, name) => [`${v}%`, String(name)]} {...TIP} />
               <Legend />
               <Bar dataKey="base" name={`기준 · ${baseLabel}`} fill={BASE_COLOR} fillOpacity={0.55} stroke={BASE_COLOR} barSize={BAR} />
               <Bar dataKey="compare" name={`비교 · ${monthLabel}`} fill={CMP_COLOR} fillOpacity={0.55} stroke={CMP_COLOR} barSize={BAR} />
@@ -121,11 +129,11 @@ export function TagDistributionCard({
       ) : (
         <ResponsiveContainer width="100%" height={Math.max(300, distribution.tags.length * 34 + 40)}>
           <BarChart data={distribution.tags} layout="vertical">
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" />
-            <YAxis dataKey="tag" type="category" width={150} interval={0} tick={{ fontSize: 13 }} />
-            <Tooltip />
-            <Bar dataKey="score" fill={BASE_COLOR} />
+            <CartesianGrid stroke={GRID} strokeDasharray="3 3" horizontal={false} />
+            <XAxis type="number" tick={TICK} axisLine={false} tickLine={false} />
+            <YAxis dataKey="tag" type="category" width={150} interval={0} tick={TICK} axisLine={false} tickLine={false} />
+            <Tooltip {...TIP} />
+            <Bar dataKey="score" fill={BASE_COLOR} radius={[0, 8, 8, 0]} />
           </BarChart>
         </ResponsiveContainer>
       )}

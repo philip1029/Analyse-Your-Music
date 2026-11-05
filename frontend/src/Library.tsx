@@ -8,7 +8,7 @@ import { DiscoveryList } from "./DiscoveryList";
 import { Num, Skeleton } from "./motion";
 import { ShareButton } from "./Share";
 import { FavoritesView, HeartButton } from "./Favorites";
-import { CAT } from "./theme";
+import { CAT, catPill } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
 import { MissingArtists } from "./ArtistFix";
 import { MergeArtists } from "./ArtistMerge";
@@ -174,15 +174,7 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
       <button
         key={c}
         onClick={() => setStack([{ type: "list", category: c }])}
-        style={{
-          padding: "0.35rem 0.9rem",
-          fontWeight: active ? 700 : 400,
-          // 카테고리 색 밑줄(비활성이어도 어떤 색인지 보인다). border 단축 속성과 borderBottom 을 섞으면 React 가 경고해서 풀어서 쓴다.
-          borderStyle: "solid",
-          borderWidth: active ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
-          borderColor: active ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
-          color: active ? CAT[c].main : undefined,
-        }}
+        style={catPill(active, CAT[c].main)}
       >
         {c === "artist" ? "Artists" : c === "album" ? "Albums" : "Tracks"}
       </button>
@@ -309,14 +301,7 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
                 <button
                   key={k}
                   onClick={() => setStack([{ type: "merge", target: k, artist: view.artist }])}
-                  style={{
-                    padding: "0.3rem 0.9rem",
-                    fontWeight: active ? 700 : 400,
-                    borderStyle: "solid",
-                    borderWidth: active ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
-                    borderColor: active ? CAT[k].main : `#666 #666 ${CAT[k].main} #666`,
-                    color: active ? CAT[k].main : undefined,
-                  }}
+                  style={catPill(active, CAT[k].main)}
                 >
                   {k === "artist" ? "아티스트" : k === "album" ? "앨범" : "곡"}
                 </button>

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { AlbumYearEditor } from "./AlbumYearEditor";
 import { BASE_URL } from "./config";
-import { Num, Skeleton, stagger } from "./motion";
+import { Num, Skeleton, stagger, Reveal } from "./motion";
 import { LINE } from "./RankRow";
-import { CAT, MUTED, SCROBBLE_COLOR } from "./theme";
+import { CAT, MUTED, SCROBBLE_COLOR, catPill } from "./theme";
 
 // Music by decade: 들은 앨범의 발매 연대별 분포. 연도는 MusicBrainz 우선 · Apple 보조 · config/album_years.txt 수동 보정으로 채운다.
 
@@ -30,16 +30,7 @@ const METRICS: { key: MetricKey; label: string; color: string; unit: string }[] 
 ];
 const SOURCE_LABEL: Record<string, string> = { musicbrainz: "MusicBrainz", "musicbrainz:apple": "MusicBrainz+Apple", apple: "Apple", manual: "수동 보정" };
 
-const pill = (on: boolean, color: string): CSSProperties => ({
-  padding: "0.25rem 0.8rem",
-  borderRadius: 999,
-  border: on ? `1px solid ${color}` : LINE,
-  background: on ? color : "transparent",
-  color: on ? "#1a1b1e" : "inherit",
-  fontWeight: on ? 700 : 500,
-  fontSize: "0.85rem",
-  cursor: "pointer",
-});
+const pill = (on: boolean, color: string): CSSProperties => ({ ...catPill(on, color), padding: "0.3rem 0.9rem", fontSize: "0.85rem" });
 
 export function DecadeCard({ query }: { query: (extra?: Record<string, string | number>) => string }) {
   const [data, setData] = useState<Decades | null>(null);
@@ -107,7 +98,7 @@ export function DecadeCard({ query }: { query: (extra?: Record<string, string | 
   }
 
   return (
-    <section style={{ margin: "1.6rem 0 0.4rem", textAlign: "left" }}>
+    <section style={{ margin: "1.4rem 0 0.4rem", textAlign: "left" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
         <h2 style={{ margin: 0 }}>연대별 음악 <span style={{ color: MUTED, fontSize: "0.9rem", fontWeight: 500 }}>Music by decade</span></h2>
         <div style={{ display: "flex", gap: "0.4rem" }}>
@@ -118,7 +109,7 @@ export function DecadeCard({ query }: { query: (extra?: Record<string, string | 
       </div>
 
       {data.decades.length > 0 ? (
-        <div style={{ margin: "0.8rem 0 0.4rem" }}>
+        <Reveal minHeight={300} style={{ margin: "0.8rem 0 0.4rem" }}>
           {rows.map((row, i) => {
             if (row.gap) {
               return (
@@ -160,7 +151,7 @@ export function DecadeCard({ query }: { query: (extra?: Record<string, string | 
               </div>
             );
           })}
-        </div>
+        </Reveal>
       ) : (
         <p style={{ color: MUTED }}>아직 발매연도를 아는 앨범이 없어요. 아래 버튼으로 연도를 채워 보세요.</p>
       )}

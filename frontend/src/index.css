@@ -1,165 +1,280 @@
+/* ───────────────────────────────────────────────────────────────
+   Analyse Your Music · 디자인 토큰과 공용 스타일
+   (A안: 둥근 유리 카드·문장 해설 + B안: 큰 숫자·수치 명시)
+   색·글꼴·둥글기는 여기 변수 한 곳에서만 바꾼다.
+   ─────────────────────────────────────────────────────────────── */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  color-scheme: dark;
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+  --bg: #0e0e10;
+  --surface: rgba(255, 255, 255, 0.05);
+  --surface-2: rgba(255, 255, 255, 0.09);
+  --surface-3: rgba(255, 255, 255, 0.14);
+  --line: rgba(255, 255, 255, 0.09);
+  --text: #f5f5f7;
+  --text-2: rgba(245, 245, 247, 0.66);
+  --text-3: rgba(245, 245, 247, 0.4);
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
+  --key: #fa233b;            /* 포인트(선택·강조) */
+  --scrobble: #ffcace;       /* 스크로블 */
+  --artist: #c490ff;         /* 아티스트 */
+  --album: #61d4b6;          /* 앨범 */
+  --track: #469df8;          /* 트랙 */
+
+  --r: 22px;                 /* 카드 */
+  --r-sm: 14px;              /* 작은 카드·입력 */
+  --gutter: 24px;
+  --top-h: 112px;            /* 고정 상단 바 높이 (구역 이동 시 여백 계산용) */
+
+  --font: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "SF Pro", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --num: "Barlow", "Pretendard Variable", Pretendard, -apple-system, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  font: 16px/1.55 var(--font);
+  letter-spacing: -0.005em;
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
+* { box-sizing: border-box; }
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
+html {
+  background: var(--bg);
+  scroll-behavior: smooth;
+  scroll-padding-top: calc(var(--top-h) + 12px);
 }
 
 body {
   margin: 0;
+  min-height: 100svh;
+  overflow-x: clip;
+  background: var(--bg);
+  color: var(--text);
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+/* 위쪽에 번지는 은은한 빛 (아티스트·앨범·트랙 색) */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -140px -80px auto -80px;
+  height: 560px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(420px 260px at 18% 30%, rgba(196, 144, 255, 0.28), transparent 70%),
+    radial-gradient(420px 260px at 52% 8%, rgba(97, 212, 182, 0.18), transparent 70%),
+    radial-gradient(420px 260px at 85% 30%, rgba(70, 157, 248, 0.24), transparent 70%);
+  filter: blur(30px);
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
-/* 파트(섹션) 제목 위아래 여백: 앞 파트와 붙어 보이지 않게 */
-#root h2 {
-  margin: 3rem 0 1rem;
-}
-#root h2:first-child {
-  margin-top: 1rem;
-}
-p {
-  margin: 0;
+#root {
+  width: 100%;
+  text-align: left;
+  /* 한국어는 글자 단위가 아니라 어절 단위로 줄바꿈 (너무 긴 단어만 강제로 끊는다) */
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
-code,
-.counter {
+p { margin: 0; }
+a { color: inherit; }
+
+/* ── 제목 ── 낮은 우선순위(:where)라서 컴포넌트가 인라인/클래스로 쉽게 덮어쓴다 */
+:where(h1, h2, h3, h4) { margin: 0; color: var(--text); letter-spacing: -0.03em; }
+:where(h2) { font-size: 1.5rem; font-weight: 800; line-height: 1.25; margin: 2.2rem 0 0.9rem; }
+:where(h3) { font-size: 1.15rem; font-weight: 700; margin: 1.6rem 0 0.7rem; }
+:where(h4) { font-size: 1rem; font-weight: 700; }
+
+:where(code) {
   font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+  font-size: 0.88em;
+  padding: 0.1em 0.45em;
+  border-radius: 6px;
+  background: var(--surface-2);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+/* ── 버튼 · 입력 ── 기본 모양을 한 곳에서 통일한다 (인라인 스타일이 있으면 그쪽이 우선) */
+:where(button) {
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.42rem 1rem;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, border-color 0.15s, opacity 0.15s;
 }
+:where(button:hover:not(:disabled)) { background: var(--surface-3); }
+:where(button:active:not(:disabled)) { transform: scale(0.97); }
+:where(button:disabled) { opacity: 0.45; cursor: default; }
+:where(button:focus-visible, a:focus-visible, [role="button"]:focus-visible) { outline: 2px solid var(--key); outline-offset: 2px; }
 
-/* 폰에서 탭 바 스크롤바 숨김 */
-.tab-bar { scrollbar-width: none; }
-.tab-bar::-webkit-scrollbar { display: none; }
+:where(input, select, textarea) {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.5rem 0.8rem;
+}
+:where(input:focus-visible, select:focus-visible, textarea:focus-visible) { outline: 2px solid var(--key); outline-offset: 1px; }
+:where(input[type="checkbox"], input[type="radio"]) { accent-color: var(--key); }
+::placeholder { color: var(--text-3); }
 
-/* ── 움직임 (Apple Music 리플레이식) ───────────────────────────── */
+/* 스크롤바 */
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.2) transparent; }
+
+/* ═════════════ 상단 바 + 구역 이동 ═════════════ */
+.aym-top {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  border-bottom: 1px solid var(--line);
+}
+/* 블러는 가상 요소에 둔다: 부모에 backdrop-filter 를 걸면 안쪽 position:fixed(하단 독)가 갇힌다 */
+.aym-top::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgba(14, 14, 16, 0.62);
+  backdrop-filter: saturate(180%) blur(40px);
+  -webkit-backdrop-filter: saturate(180%) blur(40px);
+}
+.aym-top-row { display: flex; align-items: center; gap: 12px; padding: 12px var(--gutter) 6px; max-width: 1180px; margin: 0 auto; }
+.aym-top-row.second { padding-top: 4px; padding-bottom: 12px; }
+.aym-brand { display: flex; align-items: center; gap: 9px; font-size: 1.05rem; font-weight: 800; letter-spacing: -0.03em; white-space: nowrap; }
+/* 웹 아이콘(LP판)과 같은 모양. 새로고침 중에는 LP 가 돈다 */
+.aym-logo { width: 32px; height: 32px; flex: none; display: block; }
+.aym-logo.spin { animation: aym-spin 2.4s linear infinite; }
+.aym-brand small { font-size: 0.75rem; font-weight: 500; color: var(--text-3); letter-spacing: 0; }
+.aym-grow { flex: 1; min-width: 0; }
+.aym-icon-btn { width: 36px; height: 36px; padding: 0; border-radius: 50%; display: grid; place-items: center; font-size: 1.05rem; flex: none; background: var(--surface-2); color: var(--text-2); }
+@keyframes aym-spin { to { transform: rotate(360deg); } }
+
+.aym-sections { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; flex: 1; min-width: 0; }
+.aym-sections::-webkit-scrollbar { display: none; }
+.aym-sections a {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-2);
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s;
+}
+.aym-sections a .ic { display: none; font-size: 1.1rem; line-height: 1; }
+.aym-sections a:hover { background: var(--surface); }
+.aym-sections a.on { background: var(--text); color: #111; }
+
+/* ═════════════ 본문 틀 ═════════════ */
+.aym-main { max-width: 1180px; margin: 0 auto; padding: 0 var(--gutter) 96px; }
+.aym-sec { padding-top: 56px; min-height: 240px; }
+.aym-sec > .aym-eyebrow:first-child { margin-top: 0; }
+.aym-eyebrow { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em; color: var(--key); }
+.aym-eyebrow span { color: var(--text-3); font-family: var(--num); }
+.aym-eyebrow .aym-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+/* 문장 해설 (A안): 숫자만 흰색으로 */
+.aym-lede { font-size: clamp(1.7rem, 4.2vw, 2.6rem); font-weight: 700; letter-spacing: -0.035em; line-height: 1.25; color: var(--text-3); margin: 10px 0 0; max-width: 900px; }
+.aym-lede b, .aym-lede strong { color: var(--text); font-weight: 800; }
+.aym-lede.sm { font-size: clamp(1.4rem, 3vw, 1.9rem); }
+
+/* 핵심 수치 칩 (B안) */
+.aym-facts { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+.aym-fact { display: flex; flex-direction: column; padding: 10px 16px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--line); min-width: 128px; }
+.aym-fact small { font-size: 0.75rem; color: var(--text-3); font-weight: 600; }
+.aym-fact b { font-family: var(--num); font-size: 1.15rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.aym-fact b em { font-style: normal; font-family: var(--font); font-size: 0.85rem; font-weight: 600; color: var(--text-2); margin-left: 4px; letter-spacing: 0; }
+
+/* 유리 카드 */
+.aym-panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; }
+.aym-panel > h4:first-child, .aym-panel-title { font-size: 0.95rem; font-weight: 700; color: var(--text-2); margin: 0 0 4px; }
+.aym-h3 { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 34px 0 12px; }
+.aym-h3 h3 { margin: 0; font-size: 1.25rem; font-weight: 800; }
+.aym-h3 span { font-size: 0.8rem; color: var(--text-3); }
+
+/* 알약 선택 묶음 (횟수/시간 전환 등) */
+.aym-seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface-2); }
+.aym-seg button { background: transparent; border: 0; padding: 0.3rem 0.95rem; color: var(--text-2); font-size: 0.88rem; }
+.aym-seg button[aria-pressed="true"] { background: var(--text); color: #111; }
+.aym-seg button:hover:not([aria-pressed="true"]):not(:disabled) { background: var(--surface-2); }
+
+.aym-muted { color: var(--text-3); }
+
+/* ═════════════ 폰 ═════════════ */
+@media (max-width: 700px) {
+  :root { --gutter: 14px; --top-h: 96px; }
+  html { font-size: 15px; }
+  .aym-top-row { padding-top: 10px; }
+  .aym-brand small { display: none; }
+  .aym-search { flex: 1 1 120px !important; max-width: none !important; }
+  /* 검색 결과 목록은 폰에서 화면 폭 전체로 */
+  .aym-search-pop { position: fixed !important; left: 10px !important; right: 10px !important; top: 58px !important; max-height: calc(100svh - 150px) !important; }
+  .aym-sec { padding-top: 44px; }
+  .aym-fact { flex: 1 1 calc(50% - 8px); min-width: 0; }
+  /* 구역 이동 버튼은 아래 독(dock)으로: 위 바에는 기간 버튼만 남는다 */
+  .aym-sections { display: none; }
+  .aym-top-row.second { justify-content: flex-end; padding-top: 0; }
+  .aym-main { padding-bottom: 120px; }
+  .aym-dock {
+    position: fixed;
+    left: 50%;
+    bottom: max(14px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 50;
+    max-width: calc(100% - 20px);
+    padding: 6px;
+    border-radius: 26px;
+    background: rgba(30, 30, 34, 0.78);
+    backdrop-filter: blur(30px);
+    -webkit-backdrop-filter: blur(30px);
+    border: 1px solid var(--line);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .aym-dock a { flex-direction: column; gap: 0; padding: 6px 12px; border-radius: 20px; font-size: 0.68rem; display: flex; align-items: center; text-decoration: none; color: var(--text-2); font-weight: 600; }
+  .aym-dock a .ic { display: block; font-size: 1.15rem; }
+  .aym-dock a.on { background: var(--text); color: #111; }
+}
+@media (min-width: 701px) { .aym-dock { display: none; } }
+
+/* ═════════════ 움직임 (Apple Music 리플레이식) ═════════════ */
 @keyframes aym-rise {
   from { opacity: 0; transform: translateY(10px); filter: blur(6px); }
   to   { opacity: 1; transform: none; filter: blur(0); }
 }
-@keyframes aym-fade {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-@keyframes aym-grow-y {
-  from { transform: scaleY(0); }
-  to   { transform: scaleY(1); }
-}
-@keyframes aym-grow-x {
-  from { transform: scaleX(0); }
-  to   { transform: scaleX(1); }
-}
-@keyframes aym-shimmer {
-  from { background-position: 200% 0; }
-  to   { background-position: -200% 0; }
-}
+@keyframes aym-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes aym-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes aym-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes aym-pop { from { opacity: 0; transform: scale(0.2); } to { opacity: 1; transform: scale(1); } }
+@keyframes aym-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 
 .aym-rise  { animation: aym-rise 620ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .aym-tab   { animation: aym-fade 260ms ease-out both; }
 .aym-bar   { transform-origin: left center; animation: aym-grow-x 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .aym-spark { transform-box: fill-box; transform-origin: bottom; animation: aym-grow-y 650ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.aym-cell  { transform-box: fill-box; transform-origin: center; animation: aym-pop 480ms cubic-bezier(0.22, 1, 0.36, 1) both; }
 .aym-skeleton {
-  border-radius: 6px;
-  background: linear-gradient(90deg, rgba(128,128,128,0.14) 25%, rgba(128,128,128,0.28) 50%, rgba(128,128,128,0.14) 75%);
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.05) 25%, rgba(255,255,255,0.11) 50%, rgba(255,255,255,0.05) 75%);
   background-size: 200% 100%;
   animation: aym-shimmer 1.4s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .aym-rise, .aym-tab, .aym-bar, .aym-spark, .aym-skeleton { animation: none !important; }
-}
-
-/* 한국어는 글자 단위가 아니라 어절 단위로 줄바꿈 (너무 긴 단어만 강제로 끊는다) */
-#root {
-  word-break: keep-all;
-  overflow-wrap: break-word;
+  html { scroll-behavior: auto; }
+  .aym-rise, .aym-tab, .aym-bar, .aym-spark, .aym-cell, .aym-skeleton { animation: none !important; }
 }

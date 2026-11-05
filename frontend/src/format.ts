@@ -10,7 +10,7 @@ export function fmtHM(seconds: number): string {
 export type Metric = "plays" | "time";
 
 // 그래프·히트맵 값 표시: 횟수는 "N회", 시간(분 단위 값)은 "12시간 5분"
-export const makeFmt = (metric: Metric) => (v: number) => (metric === "time" ? fmtHM(v * 60) : `${v}회`);
+export const makeFmt = (metric: Metric) => (v: number) => (metric === "time" ? fmtHM(v * 60) : `${v.toLocaleString()}회`);
 
 const WEEKDAYS_KO = ["일", "월", "화", "수", "목", "금", "토"];
 

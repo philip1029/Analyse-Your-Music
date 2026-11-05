@@ -4,13 +4,14 @@ import { Library, type LibraryRequest, type LibraryTarget, type SortMode } from 
 import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
 import { DecadeCard } from "./DecadeCard";
+import { TopCards } from "./TopCards";
 import { FunFactCard } from "./FunFactCard";
 import { TagDistributionCard } from "./TagCompare";
 import { RaceTab } from "./Race";
 import { DiscoveryList } from "./DiscoveryList";
 import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
-import { Skeleton } from "./motion";
+import { Reveal, Skeleton, prefersReducedMotion, useInView } from "./motion";
 import { RankRow } from "./RankRow";
 import { RefreshBar } from "./RefreshBar";
 import { SearchBox } from "./Search";
@@ -126,15 +127,30 @@ type Diversity = {
 
 type TabId = "overview" | "listening" | "music" | "discovery" | "taste" | "race" | "data";
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: "overview", label: "Overview" },
-  { id: "listening", label: "Listening" },
-  { id: "music", label: "Music" },
-  { id: "discovery", label: "Discovery" },
-  { id: "taste", label: "Taste" },
-  { id: "race", label: "Race" },
-  { id: "data", label: "Data" },
+// 한 페이지의 구역들. 위쪽 이동 버튼과 구역 제목이 이 목록을 함께 쓴다.
+const TABS: { id: TabId; label: string; icon: string; num: string }[] = [
+  { id: "overview", label: "요약", icon: "📊", num: "01" },
+  { id: "listening", label: "청취", icon: "🕘", num: "02" },
+  { id: "music", label: "음악", icon: "🎵", num: "03" },
+  { id: "discovery", label: "발견", icon: "🔭", num: "04" },
+  { id: "taste", label: "취향", icon: "🎨", num: "05" },
+  { id: "race", label: "레이스", icon: "🏁", num: "06" },
+  { id: "data", label: "데이터", icon: "🗂", num: "07" },
 ];
+
+// 차트 공용 모양 (recharts 기본색 대신 앱 색을 쓴다)
+const GRID_STROKE = "rgba(255,255,255,0.08)";
+const AXIS_TICK = { fill: "rgba(245,245,247,0.5)", fontSize: 12 };
+const TIP = {
+  contentStyle: { background: "#1b1b1f", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 12, color: "#f5f5f7", boxShadow: "0 10px 30px rgba(0,0,0,0.5)" },
+  labelStyle: { color: "rgba(245,245,247,0.7)", fontWeight: 700 },
+  itemStyle: { color: "#f5f5f7" },
+  cursor: { stroke: "rgba(255,255,255,0.2)", fill: "rgba(255,255,255,0.05)" },
+};
+const TAG_COLORS = ["#c490ff", "#61d4b6", "#469df8", "#ffcace", "#fa233b", "#ffb86b", "#9be564", "#ff7eb6"];
+
+const hourKo = (h: number) => `${h < 12 ? "오전" : "오후"} ${h % 12 === 0 ? 12 : h % 12}시`;
+const peakOf = (xs: ChartPoint[]) => (xs.length ? xs.reduce((a, b) => (b.count > a.count ? b : a)) : null);
 
 // 선택한 기간이 한 해 / 한 달 / 월~일 한 주 하나와 정확히 같으면 그 종류와 기준값(anchor)을 돌려준다
 function detectPeriod(range: { start?: string; end?: string }): { kind: "year" | "month" | "week"; anchor: string } | null {
@@ -162,28 +178,57 @@ const BUMP_LABEL: Record<string, string> = {
   pre: "정식 버전 쪽으로",
 };
 
-const DATA_PANEL: CSSProperties ={ border: "1px solid rgba(128,128,128,0.3)", borderRadius: 10, padding: "1.2rem 1.3rem" };
-const DATA_TITLE: CSSProperties = { margin: "0 0 0.8rem", fontSize: "1.2rem" };
-const DATA_LABEL: CSSProperties = { display: "block", fontSize: "0.85rem", color: "#999", margin: "0 0 0.3rem" };
-const DATA_INPUT: CSSProperties = { width: "100%", padding: "0.5rem", marginBottom: "0.9rem", boxSizing: "border-box" };
+const DATA_PANEL: CSSProperties = { background: "var(--surface)", border: "1px solid var(--line)", borderRadius: "var(--r)", padding: "1.3rem 1.4rem" };
+const DATA_TITLE: CSSProperties = { margin: "0 0 0.8rem", fontSize: "1.15rem", fontWeight: 800 };
+const DATA_LABEL: CSSProperties = { display: "block", fontSize: "0.85rem", color: "var(--text-3)", margin: "0 0 0.3rem" };
+const DATA_INPUT: CSSProperties = { width: "100%", marginBottom: "0.9rem" };
 
 // 횟수 / 시간 전환 버튼 (시간 = 스크로블 횟수 x 곡 길이, 끝까지 들었다고 가정한 추정치)
 function MetricToggle({ metric, onChange }: { metric: Metric; onChange: (m: Metric) => void }) {
   return (
-    <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", margin: "0.4rem 0 0.8rem" }}>
-      {([
-        ["plays", "재생 횟수"],
-        ["time", "청취 시간"],
-      ] as const).map(([m, label]) => (
-        <button
-          key={m}
-          onClick={() => onChange(m)}
-          style={{ padding: "0.3rem 0.8rem", fontWeight: metric === m ? "bold" : "normal", border: metric === m ? "2px solid #8884d8" : "1px solid #666" }}
-        >
-          {label}
-        </button>
+    <div style={{ display: "flex", gap: "0.7rem", alignItems: "center", flexWrap: "wrap", margin: "0.4rem 0 0.8rem" }}>
+      <div className="aym-seg" role="group" aria-label="보기 기준">
+        {([
+          ["plays", "재생 횟수"],
+          ["time", "청취 시간"],
+        ] as const).map(([m, label]) => (
+          <button key={m} aria-pressed={metric === m} onClick={() => onChange(m)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {metric === "time" && <span className="aym-muted" style={{ fontSize: "0.8rem" }}>스크로블 횟수 × 곡 길이 (끝까지 들었다고 가정한 추정치)</span>}
+    </div>
+  );
+}
+
+// 구역 제목줄: "01 · 요약" (오른쪽에 버튼을 둘 수 있다)
+function Eyebrow({ id, actions }: { id: TabId; actions?: React.ReactNode }) {
+  const t = TABS.find((x) => x.id === id)!;
+  return (
+    <div className="aym-eyebrow">
+      {t.num} <span>·</span> {t.label}
+      {actions && <div className="aym-actions">{actions}</div>}
+    </div>
+  );
+}
+
+// 문장 해설 + 핵심 수치 칩 (구역마다 같은 모양)
+function Lede({ children, small }: { children: React.ReactNode; small?: boolean }) {
+  return <p className={`aym-lede${small ? " sm" : ""}`}>{children}</p>;
+}
+function Facts({ items }: { items: { label: string; value: string; sub?: string }[] }) {
+  return (
+    <div className="aym-facts">
+      {items.map((f) => (
+        <div className="aym-fact" key={f.label}>
+          <small>{f.label}</small>
+          <b>
+            {f.value}
+            {f.sub && <em>{f.sub}</em>}
+          </b>
+        </div>
       ))}
-      {metric === "time" && <span style={{ color: "#888", fontSize: "0.8rem" }}>스크로블 횟수 × 곡 길이 (끝까지 들었다고 가정한 추정치)</span>}
     </div>
   );
 }
@@ -202,14 +247,16 @@ function YearHeatmap({
   const countMap = new Map(data.map((d) => [d.date, d.count]));
   const maxCount = Math.max(...data.map((d) => d.count), 1);
 
+  // 민트 계열 4단계(진할수록 많이 들은 날). 0 은 거의 보이지 않는 회색 칸
   const getColor = (count: number) => {
-    if (count === 0) return "rgba(128,128,128,0.22)";
+    if (count === 0) return "rgba(255,255,255,0.07)";
     const ratio = count / maxCount;
-    if (ratio < 0.25) return "#9be9a8";
-    if (ratio < 0.5) return "#40c463";
-    if (ratio < 0.75) return "#30a14e";
-    return "#216e39";
+    if (ratio < 0.25) return "#1d4a42";
+    if (ratio < 0.5) return "#2b8473";
+    if (ratio < 0.75) return "#45b99d";
+    return "#86f0d2";
   };
+  const [panelRef, seen] = useInView<HTMLDivElement>();
 
   const startDate = new Date(`${year}-01-01`);
   startDate.setDate(startDate.getDate() - startDate.getDay());
@@ -248,12 +295,12 @@ function YearHeatmap({
   const height = 7 * (cellSize + cellGap) + 20;
 
   return (
-    <div style={{ marginBottom: "1.5rem" }}>
-      <h4 style={{ margin: "0 0 0.3rem 0" }}>{year}</h4>
+    <div ref={panelRef} className="aym-panel" style={{ marginBottom: "0.9rem" }}>
+      <h4 style={{ margin: "0 0 0.5rem 0", color: "var(--text-2)" }}>{year}</h4>
       <div style={{ overflowX: "auto" }}>
         <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", minWidth: 640, height: "auto", display: "block" }}>
           {monthLabels.map((m, i) => (
-            <text key={i} x={m.x} y={10} fontSize={10} fill="#888">
+            <text key={i} x={m.x} y={10} fontSize={10} fill="rgba(245,245,247,0.4)">
               {m.label}
             </text>
           ))}
@@ -269,7 +316,8 @@ function YearHeatmap({
                   height={cellSize}
                   rx={2}
                   fill={inYear ? getColor(day.count) : "transparent"}
-                  style={{ cursor: inYear ? "pointer" : "default" }}
+                  className={inYear && seen ? "aym-cell" : undefined}
+                  style={{ cursor: inYear ? "pointer" : "default", opacity: inYear && !seen ? 0 : undefined, animationDelay: seen ? `${wi * 9 + di * 12}ms` : undefined }}
                   onClick={() => inYear && onDayClick(day.date)}
                 >
                   {inYear && (
@@ -301,6 +349,27 @@ function interpolateColor(a: string, b: string, t: number) {
 function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n: number) => string; noun: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; hour: number; count: number } | null>(null);
+
+  // 화면에 보이는 순간부터 0시 → 23시 순서로 쐐기들이 바깥으로 자라난다 (값이 바뀌면 다시 펼쳐진다). t: 0 → 1
+  const [viewRef, seen] = useInView<SVGSVGElement>();
+  const [t, setT] = useState(() => (prefersReducedMotion() ? 1 : 0));
+  const dataKey = data.map((d) => d.count).join(",");
+  useEffect(() => {
+    if (!seen) return;
+    if (prefersReducedMotion()) {
+      setT(1);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / 1500);
+      setT(p);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [seen, dataKey]);
 
   if (data.length === 0) return null;
 
@@ -350,12 +419,15 @@ function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n
 
   return (
     <div ref={containerRef} style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", gap: "2.5rem", flexWrap: "wrap" }}>
-      <svg width={size} height={size}>
+      <svg ref={viewRef} width={size} height={size}>
         {data.map((d, h) => {
           const startAngle = h * 15 + gapDeg / 2;
           const endAngle = (h + 1) * 15 - gapDeg / 2;
           const ratio = d.count / maxCount;
-          const rOuter = rInner + (rOuterMax - rInner) * ratio;
+          // 쐐기마다 시작 시점이 조금씩 늦다 (전체의 45% 동안 차례로 출발, 각자 55% 동안 자란다)
+          const local = Math.min(1, Math.max(0, (t - (h / 24) * 0.45) / 0.55));
+          const grown = 1 - Math.pow(1 - local, 3);
+          const rOuter = rInner + (rOuterMax - rInner) * ratio * grown;
           const isHovered = tooltip?.hour === h;
 
         return (
@@ -365,12 +437,12 @@ function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n
             onMouseLeave={() => setTooltip(null)}
             style={{ cursor: "pointer" }}
           >
-            <path d={describeWedge(rOuterMax, startAngle, endAngle)} fill={isHovered ? "rgba(128,128,128,0.4)" : "rgba(128,128,128,0.22)"} />
+            <path d={describeWedge(rOuterMax, startAngle, endAngle)} fill={isHovered ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.07)"} opacity={Math.min(1, t * 4)} />
             {d.count > 0 && (
               <path
                 d={describeWedge(rOuter, startAngle, endAngle)}
-                fill={interpolateColor("#bfdbfe", "#2563eb", ratio)}
-                stroke={isHovered ? "#111" : "none"}
+                fill={interpolateColor("#2c4a73", "#6db2ff", ratio)}
+                stroke={isHovered ? "#fff" : "none"}
                 strokeWidth={isHovered ? 1.5 : 0}
               />
             )}
@@ -384,12 +456,12 @@ function ListeningClock({ data, format, noun }: { data: ChartPoint[]; format: (n
       </svg>
 
       <div>
-        <p style={{ color: "#888", margin: "0 0 4px 0" }}>가장 붐비는 시간대</p>
-        <p style={{ fontSize: "1.8rem", fontWeight: "bold", margin: "0 0 1.2rem 0" }}>
+        <p style={{ color: "var(--text-3)", margin: "0 0 4px 0", fontSize: "0.85rem" }}>가장 붐비는 시간대</p>
+        <p className="num" style={{ fontSize: "2rem", fontWeight: 800, margin: "0 0 1.2rem 0" }}>
           {formatHourKorean(busiestHour)}
         </p>
-        <p style={{ color: "#888", margin: "0 0 4px 0" }}>가장 바쁜 시간대의 {noun}</p>
-        <p style={{ fontSize: "1.8rem", fontWeight: "bold", margin: 0 }}>{format(maxCount)}</p>
+        <p style={{ color: "var(--text-3)", margin: "0 0 4px 0", fontSize: "0.85rem" }}>가장 바쁜 시간대의 {noun}</p>
+        <p className="num" style={{ fontSize: "2rem", fontWeight: 800, margin: 0 }}>{format(maxCount)}</p>
       </div>
 
       {tooltip && (
@@ -492,7 +564,8 @@ function DayDetailModal({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,0.5)",
+        background: "rgba(0,0,0,0.6)",
+        backdropFilter: "blur(8px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -501,11 +574,14 @@ function DayDetailModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="aym-rise"
         style={{
-          background: "Canvas",
-          color: "CanvasText",
-          borderRadius: 8,
-          padding: "1.5rem",
+          background: "#18181b",
+          color: "var(--text)",
+          border: "1px solid var(--line)",
+          borderRadius: 26,
+          boxShadow: "0 30px 80px rgba(0,0,0,0.6)",
+          padding: "1.6rem",
           width: "min(600px, 90vw)",
           maxHeight: "80vh",
           overflowY: "auto",
@@ -548,7 +624,7 @@ function DayDetailModal({
             <h4 style={{ marginBottom: "0.4rem" }}>전체 재생 목록 (시간순)</h4>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
               <thead>
-                <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
+                <tr style={{ textAlign: "left", borderBottom: "1px solid var(--line)", color: "var(--text-3)" }}>
                   <th style={{ padding: "0.3rem" }}>시각</th>
                   <th style={{ padding: "0.3rem" }}>아티스트</th>
                   <th style={{ padding: "0.3rem" }}>트랙</th>
@@ -556,7 +632,7 @@ function DayDetailModal({
               </thead>
               <tbody>
                 {detail.tracks.map((t, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                  <tr key={i} style={{ borderBottom: "1px solid var(--line)" }}>
                     <td style={{ padding: "0.3rem", color: "#888", whiteSpace: "nowrap" }}>{t.time}</td>
                     <td style={{ padding: "0.3rem" }}>{t.artist}</td>
                     <td style={{ padding: "0.3rem" }}>{t.track}</td>
@@ -624,11 +700,11 @@ const handleCopyPrompt = () => {
   const [libraryRequest, setLibraryRequest] = useState<LibraryRequest | null>(null);
   const openInLibrary = (target: LibraryTarget) => {
     setLibraryRequest({ id: Date.now(), target });
-    setActiveTab("music");
+    goTo("music");
   };
   const openListInLibrary = (category: Cat, sort: SortMode) => {
     setLibraryRequest({ id: Date.now(), list: { category, sort } });
-    setActiveTab("music");
+    goTo("music");
   };
 
   const [invalidating, setInvalidating] = useState(false);
@@ -644,7 +720,33 @@ const handleCopyPrompt = () => {
   const [installingDeps, setInstallingDeps] = useState(false);
   const [installMessage, setInstallMessage] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  // 한 페이지 구조: 구역이 화면 근처에 오면 그때 내용을 불러오고 그린다 (무거운 구역을 처음부터 다 받지 않도록).
+  // reached = 한 번이라도 가까워진 구역, current = 지금 보고 있는 구역(위쪽 이동 버튼 강조용)
+  const [reached, setReached] = useState<Set<TabId>>(() => new Set<TabId>(["overview"]));
+  const [current, setCurrent] = useState<TabId>("overview");
+  const reach = useCallback((id: TabId) => setReached((prev) => (prev.has(id) ? prev : new Set(prev).add(id))), []);
+  const goTo = useCallback(
+    (id: TabId) => {
+      reach(id);
+      const go = (behavior: ScrollBehavior) => document.getElementById(id)?.scrollIntoView({ behavior, block: "start" });
+      go("smooth");
+      // 도착한 구역의 내용이 늦게 채워지면 위치가 밀리므로, 아직 그 근처에 있을 때만 두 번 바로잡는다
+      const fix = () => {
+        const top = document.getElementById(id)?.getBoundingClientRect().top;
+        if (top !== undefined && Math.abs(top) < 700) go("auto");
+      };
+      window.setTimeout(fix, 700);
+      window.setTimeout(fix, 1600);
+    },
+    [reach]
+  );
+  const overviewReached = reached.has("overview");
+  const listeningReached = reached.has("listening");
+  const musicReached = reached.has("music");
+  const discoveryReached = reached.has("discovery");
+  const tasteReached = reached.has("taste");
+  const raceReached = reached.has("race");
+  const dataReached = reached.has("data");
 
   const [dateRange, setDateRange] = useState<DateRange>(ALL_TIME);
 
@@ -811,30 +913,70 @@ const handleCopyPrompt = () => {
     loadAllData();
   }, [loadAllData]);
 
-  // 무거운 Taste·Discovery 데이터는 그 탭을 열 때만 받는다 (페이지를 처음 열 때 한꺼번에 받으면 느려진다). 태그 현황은 Data 탭에서도 쓴다.
+  // 무거운 취향·발견 데이터는 그 구역이 가까워졌을 때만 받는다 (페이지를 처음 열 때 한꺼번에 받으면 느려진다). 태그 현황은 데이터 구역에서도 쓴다.
   useEffect(() => {
-    if (activeTab !== "taste" && activeTab !== "data") return;
+    if (!tasteReached && !dataReached) return;
     fetch(`${BASE_URL}/api/taste/tag-distribution${buildQuery()}`)
       .then((res) => res.json())
       .then(setTagDistribution)
       .catch((err) => setError(err.message));
-  }, [activeTab, buildQuery]);
+  }, [tasteReached, dataReached, buildQuery]);
 
   useEffect(() => {
-    if (activeTab !== "taste") return;
+    if (!tasteReached) return;
     fetch(`${BASE_URL}/api/taste/evolution${buildQuery({ mode: evolutionMode })}`)
       .then((res) => res.json())
       .then(setTagEvolution)
       .catch((err) => setError(err.message));
-  }, [activeTab, buildQuery, evolutionMode]);
+  }, [tasteReached, buildQuery, evolutionMode]);
 
   useEffect(() => {
-    if (activeTab !== "discovery") return;
+    if (!discoveryReached) return;
     fetch(`${BASE_URL}/api/discovery/summary${buildQuery()}`)
       .then((res) => res.json())
       .then(setDiscoverySummary)
       .catch((err) => setError(err.message));
-  }, [activeTab, buildQuery]);
+  }, [discoveryReached, buildQuery]);
+
+  // 구역이 화면 근처(위아래 700px)에 오면 불러오기 시작한다. 구역은 첫 데이터가 온 뒤에야 화면에 생긴다.
+  const hasStats = stats !== null;
+  useEffect(() => {
+    if (!hasStats) return;
+    const els = TABS.map((t) => document.getElementById(t.id)).filter((el): el is HTMLElement => el !== null);
+    const io = new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && reach(e.target.id as TabId)), { rootMargin: "700px 0px 700px 0px" });
+    els.forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [hasStats, reach]);
+
+  // 스크롤하면 지금 보는 구역을 위쪽 이동 버튼에서 켠다
+  useEffect(() => {
+    if (!hasStats) return;
+    const spy = () => {
+      const y = window.innerHeight * 0.32;
+      let cur: TabId = TABS[0].id;
+      for (const t of TABS) {
+        const el = document.getElementById(t.id);
+        if (el && el.getBoundingClientRect().top <= y) cur = t.id;
+      }
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) cur = TABS[TABS.length - 1].id;
+      setCurrent(cur);
+    };
+    spy();
+    window.addEventListener("scroll", spy, { passive: true });
+    window.addEventListener("resize", spy);
+    return () => {
+      window.removeEventListener("scroll", spy);
+      window.removeEventListener("resize", spy);
+    };
+  }, [hasStats]);
+
+  // 켜진 버튼이 좁은 화면에서 줄 밖에 있으면 보이는 위치로 옮긴다 (페이지 전체가 아니라 버튼 줄만 움직인다)
+  useEffect(() => {
+    document.querySelectorAll<HTMLElement>(".aym-sections, .aym-dock").forEach((box) => {
+      const on = box.querySelector<HTMLElement>("a.on");
+      if (on && box.scrollWidth > box.clientWidth) box.scrollTo({ left: on.offsetLeft - (box.clientWidth - on.clientWidth) / 2, behavior: "smooth" });
+    });
+  }, [current]);
 
   useEffect(() => {
     fetch(`${BASE_URL}/api/update-check`)
@@ -860,10 +1002,10 @@ const handleCopyPrompt = () => {
   // 같은 범위로 탭만 다시 열면 이미 불러온 목록("더 보기" 포함)을 그대로 쓴다.
   const tagsLoadedFor = useRef<typeof loadArtistTagsPage | null>(null);
   useEffect(() => {
-    if (activeTab !== "taste" || tagsLoadedFor.current === loadArtistTagsPage) return;
+    if (!tasteReached || tagsLoadedFor.current === loadArtistTagsPage) return;
     tagsLoadedFor.current = loadArtistTagsPage;
     loadArtistTagsPage(1);
-  }, [activeTab, loadArtistTagsPage]);
+  }, [tasteReached, loadArtistTagsPage]);
 
   const handleInvalidateAliasCache = () => {
     setInvalidating(true);
@@ -1060,30 +1202,66 @@ const handleCopyPrompt = () => {
   const fmtVal = makeFmt(metric);
   const axisFmt = (v: number) => (metric === "time" ? `${Math.round(v / 60)}h` : String(v));
 
+  // ── 구역별 문장 해설에 쓰는 값 (모두 이미 받아 둔 데이터에서 규칙으로 계산한다)
+  const pkHour = peakOf(hourlyData);
+  const pkDay = peakOf(weekdayData);
+  const pkMonth = peakOf(monthlyData);
+  const monthKo = (k: string) => `${k.slice(0, 4)}년 ${Number(k.slice(5, 7))}월`;
+  const discNoun = discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "명" : "개";
+  const discMonths = discoverySummary ? discoverySummary[discoveryCat].months : [];
+  const discAll = discoverySummary ? discoverySummary[discoveryCat].counts : [];
+  const thisMonthKey = new Date().toISOString().slice(0, 7);
+  const discDone = discMonths.length && discMonths[discMonths.length - 1] === thisMonthKey ? discAll.slice(0, -1) : discAll;   // 진행 중인 달은 평균에서 뺀다
+  const discRecent = discDone.slice(-6);
+  const discAvg = discRecent.length >= 2 ? Math.round(discRecent.reduce((a, b) => a + b, 0) / discRecent.length) : null;
+  const DIV_LABEL = { artist: "아티스트는", track: "트랙은", album: "앨범은" } as const;
+  const divRows = diversity ? (["artist", "track", "album"] as const).map((k) => ({ k, score: Math.round(diversity[k].normalized_entropy * 100), top: diversity[k].top10pct_concentration })) : [];
+  const divMost = divRows.length ? divRows.reduce((a, b) => (b.score > a.score ? b : a)) : null;
+  const divLeast = divRows.length ? divRows.reduce((a, b) => (b.score < a.score ? b : a)) : null;
+  const perDay = timeSummary && timeSummary.days > 0 ? Math.round(stats.total_scrobbles / timeSummary.days) : null;
+
   return (
     <ShareProvider>
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>
-        Analyse Your Music
-        {updateInfo?.local_version && (
-          <span style={{ fontSize: "0.9rem", fontWeight: 500, marginLeft: "0.6rem", opacity: 0.6, letterSpacing: 0 }}>v{updateInfo.local_version}</span>
-        )}
-      </h1>
+    <div>
+      {/* 상단 바: 로고 · 검색 · 새로고침 / 구역 이동 버튼 · 기간 */}
+      <header className="aym-top">
+        <div className="aym-top-row">
+          <h1 className="aym-brand">
+            <img src="/icon-192.png" alt="" width={32} height={32} className={refreshing ? "aym-logo spin" : "aym-logo"} />
+            Analyse Your Music
+            {updateInfo?.local_version && <small>v{updateInfo.local_version}</small>}
+          </h1>
+          <div className="aym-grow" />
+          <SearchBox query={buildQuery} rangeLabel={dateRange.label} onPick={openInLibrary} />
+          <button onClick={handleRefresh} disabled={refreshing} className="aym-icon-btn" title="최신 스크롭 불러오기" aria-label="최신 스크롭 불러오기">
+            <span aria-hidden style={{ display: "inline-block", animation: refreshing ? "aym-spin 1s linear infinite" : undefined }}>↻</span>
+          </button>
+        </div>
+        <div className="aym-top-row second">
+          <nav className="aym-sections" aria-label="구역 이동">
+            {TABS.map((t) => (
+              <a key={t.id} href={`#${t.id}`} className={current === t.id ? "on" : undefined} aria-current={current === t.id ? "true" : undefined} onClick={(e) => { e.preventDefault(); goTo(t.id); }}>
+                {t.label}
+              </a>
+            ))}
+          </nav>
+          <PeriodBar variant="button" range={dateRange} onChange={setDateRange} />
+        </div>
+      </header>
 
+      {/* 폰에서는 구역 이동 버튼이 아래 독으로 간다 */}
+      <nav className="aym-dock" aria-label="구역 이동 (하단)">
+        {TABS.map((t) => (
+          <a key={t.id} href={`#${t.id}`} className={current === t.id ? "on" : undefined} onClick={(e) => { e.preventDefault(); goTo(t.id); }}>
+            <span className="ic" aria-hidden>{t.icon}</span>
+            {t.label}
+          </a>
+        ))}
+      </nav>
+
+      <main className="aym-main">
       {updateInfo?.update_available && !updateDismissed && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "1rem",
-            background: "#eef6ff",
-            border: "1px solid #8ec0f2",
-            borderRadius: 8,
-            padding: "0.75rem 1rem",
-            marginBottom: "1rem",
-          }}
-        >
+        <div className="aym-panel" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap", marginTop: "1rem", borderColor: "rgba(70,157,248,0.45)", background: "rgba(70,157,248,0.1)" }}>
           <span>
             🔔 새 업데이트가 있어요
             {updateInfo.remote_version && updateInfo.local_version && updateInfo.remote_version !== updateInfo.local_version
@@ -1093,73 +1271,29 @@ const handleCopyPrompt = () => {
             {updateApplyMessage ? ` ${updateApplyMessage}` : ""}
           </span>
           <div style={{ display: "flex", gap: "0.5rem", flexShrink: 0 }}>
-            <button
-              onClick={() => setUpdateDismissed(true)}
-              disabled={applyingUpdate}
-              style={{ padding: "0.3rem 0.6rem" }}
-            >
+            <button onClick={() => setUpdateDismissed(true)} disabled={applyingUpdate}>
               나중에 하기
             </button>
-            <button
-              onClick={handleApplyUpdate}
-              disabled={applyingUpdate}
-              style={{ padding: "0.3rem 0.6rem", background: "#2563eb", color: "white" }}
-            >
+            <button onClick={handleApplyUpdate} disabled={applyingUpdate} style={{ background: "var(--track)", color: "#0b1220" }}>
               {applyingUpdate ? "업데이트 중..." : "지금 하기"}
             </button>
           </div>
         </div>
       )}
 
-      {/* 상단 컨트롤: 새로고침 (기간 선택은 탭 아래 PeriodBar 로 통합) */}
-      <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "0.5rem 1rem", flexShrink: 0 }}>
-          {refreshing ? "업데이트 중..." : "🔄 최신 스크롭 불러오기"}
-        </button>
-        <RefreshBar active={refreshing} />
-        <SearchBox query={buildQuery} rangeLabel={dateRange.label} onPick={openInLibrary} />
-      </div>
+      {/* 새로고침 진행 상황 */}
+      {(refreshing || refreshMessage) && (
+        <div className="aym-panel" style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", marginTop: "1rem" }}>
+          <RefreshBar active={refreshing} />
+          {refreshMessage && <p style={{ margin: 0, color: "var(--text-2)" }}>{refreshMessage}</p>}
+        </div>
+      )}
 
-      {/* 탭 바 */}
-      <div className="tab-bar" style={{ display: "flex", gap: "0.5rem", borderBottom: "1px solid #ddd", marginBottom: "1.5rem", overflowX: "auto" }}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              flexShrink: 0,
-              whiteSpace: "nowrap",
-              padding: "0.6rem 1rem",
-              border: "none",
-              borderBottom: activeTab === tab.id ? "2px solid #333" : "2px solid transparent",
-              background: "none",
-              fontWeight: activeTab === tab.id ? "bold" : "normal",
-              cursor: "pointer",
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      <PeriodBar range={dateRange} onChange={setDateRange} />
-
-      {refreshMessage && <p>{refreshMessage}</p>}
-
-      {/* 치명적 에러는 탭과 무관하게 항상 상단에 노출 */}
+      {/* 치명적 에러는 구역과 무관하게 항상 상단에 노출 */}
       {validation && !validation.valid && (
-        <div
-          style={{
-            background: "#fdd",
-            color: "#222",
-            border: "1px solid #c00",
-            borderRadius: 8,
-            padding: "1rem",
-            marginBottom: "1rem",
-          }}
-        >
+        <div className="aym-panel" style={{ marginTop: "1rem", borderColor: "rgba(250,35,59,0.6)", background: "rgba(250,35,59,0.12)" }}>
           <strong>⚠️ 데이터에 치명적인 문제가 있습니다</strong>
-          <ul>
+          <ul style={{ margin: "0.5rem 0 0" }}>
             {validation.errors.map((e, i) => (
               <li key={i}>{e}</li>
             ))}
@@ -1167,47 +1301,218 @@ const handleCopyPrompt = () => {
         </div>
       )}
 
-      <div key={activeTab} className="aym-tab">
-      {/* Overview 탭 */}
-      {activeTab === "overview" && (
+      <PeriodBar variant="chips" range={dateRange} onChange={setDateRange} />
+
+      {/* ───────── 01 요약 ───────── */}
+      <section id="overview" className="aym-sec" style={overviewReached ? undefined : { minHeight: 700 }}>
+        <Eyebrow id="overview" actions={<ShareButton spec={{ kind: "period", card: "summary", period: "all" }} label="🖼 요약 이미지 만들기" />} />
+        {overviewReached && (
+          <>
+            <OverviewCards
+              query={buildQuery}
+              firstScrobble={stats.first_scrobble}
+              totalScrobbles={stats.total_scrobbles}
+              timeSummary={timeSummary}
+              isAllTime={!dateRange.start && !dateRange.end}
+            />
+
+            <TopCards query={buildQuery} total={stats.total_scrobbles} onOpen={openInLibrary} onMore={openListInLibrary} />
+
+            <FunFactCard />
+
+            <div className="aym-h3">
+              <h3>청취 활동 히트맵</h3>
+              <span>날짜를 누르면 그날 들은 곡을 볼 수 있어요</span>
+            </div>
+            <MetricToggle metric={metric} onChange={setMetric} />
+            <ContributionHeatmap data={dailyData} onDayClick={handleDayClick} format={fmtVal} />
+          </>
+        )}
+      </section>
+
+      {/* ───────── 02 청취 ───────── */}
+      <section id="listening" className="aym-sec" style={listeningReached ? undefined : { minHeight: 700 }}>
+        <Eyebrow id="listening" actions={<ShareButton spec={{ kind: "period", card: "clock", period: "all", metric }} />} />
+        {listeningReached && (
+          <>
+            {pkHour && pkDay ? (
+              <Lede small>
+                하루 중 <b>{hourKo(parseInt(pkHour.label, 10))}</b>에 가장 많이 듣고, 요일로는 <b>{pkDay.label}요일</b>이 가장 많아요.
+              </Lede>
+            ) : (
+              <Skeleton lines={1} height={34} style={{ marginTop: 14 }} />
+            )}
+            {pkHour && pkDay && (
+              <Facts
+                items={[
+                  { label: "가장 붐비는 시간", value: hourKo(parseInt(pkHour.label, 10)), sub: fmtVal(pkHour.count) },
+                  { label: "가장 바쁜 요일", value: `${pkDay.label}요일`, sub: fmtVal(pkDay.count) },
+                  ...(pkMonth ? [{ label: "가장 많이 들은 달", value: monthKo(pkMonth.label), sub: fmtVal(pkMonth.count) }] : []),
+                ]}
+              />
+            )}
+            <div style={{ marginTop: 18 }}>
+              <MetricToggle metric={metric} onChange={setMetric} />
+            </div>
+
+            <div className="aym-h3"><h3>청취 시계</h3></div>
+            <div className="aym-panel">
+              <ListeningClock data={hourlyData} format={fmtVal} noun={metric === "time" ? "청취 시간" : "스크로블"} />
+            </div>
+
+            <div className="aym-h3"><h3>월별 청취 추이</h3></div>
+            <Reveal className="aym-panel" minHeight={320}>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={monthlyData}>
+                  <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} minTickGap={28} />
+                  <YAxis tickFormatter={axisFmt} tick={AXIS_TICK} axisLine={false} tickLine={false} width={44} />
+                  <Tooltip formatter={(v) => fmtVal(Number(v))} {...TIP} />
+                  <Line type="monotone" dataKey="count" stroke="#fa233b" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </Reveal>
+
+            <div className="aym-h3"><h3>주간 {metric === "time" ? "청취 시간" : "스크로블"}</h3></div>
+            <Reveal className="aym-panel" minHeight={300}>
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={weekdayData}>
+                  <defs>
+                    <linearGradient id="weeklyGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#c490ff" stopOpacity={0.55} />
+                      <stop offset="95%" stopColor="#c490ff" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={axisFmt} tick={AXIS_TICK} axisLine={false} tickLine={false} width={44} />
+                  <Tooltip formatter={(v) => fmtVal(Number(v))} {...TIP} />
+                  <Area type="monotone" dataKey="count" stroke="#c490ff" strokeWidth={2.5} fill="url(#weeklyGradient)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Reveal>
+
+            <div className="aym-h3"><h3>연도별 청취 추이</h3></div>
+            <Reveal className="aym-panel" minHeight={300}>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={yearlyData}>
+                  <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={axisFmt} tick={AXIS_TICK} axisLine={false} tickLine={false} width={44} />
+                  <Tooltip formatter={(v) => fmtVal(Number(v))} {...TIP} />
+                  <Bar dataKey="count" fill="#61d4b6" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </Reveal>
+          </>
+        )}
+      </section>
+
+      {/* ───────── 03 음악 ───────── 연대별 · Top 10 · 순위 목록 · 상세 (정렬: 많이/오래/꾸준히/몰아/처음 들은 순) */}
+      <section id="music" className="aym-sec" style={musicReached ? undefined : { minHeight: 700 }}>
+        <Eyebrow id="music" />
+        {musicReached && (
+          <>
+            <DecadeCard query={buildQuery} />
+            <Library query={buildQuery} request={libraryRequest} />
+          </>
+        )}
+      </section>
+
+      {/* ───────── 04 발견 ───────── */}
+      <section id="discovery" className="aym-sec" style={discoveryReached ? undefined : { minHeight: 600 }}>
+        <Eyebrow id="discovery" />
+        {discoveryReached && !discoverySummary && <Skeleton lines={4} height={60} style={{ marginTop: 20 }} />}
+        {discoveryReached && discoverySummary && (
+          <>
+            {discAvg !== null ? (
+              <Lede small>
+                최근 {discRecent.length}개월 동안 매달 평균 <b className="num">{discAvg.toLocaleString()}{discNoun}</b>을 새로 만났어요.
+              </Lede>
+            ) : (
+              <Lede small>
+                지금까지 새로 만난 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"}은 <b className="num">{discoverySummary[discoveryCat].total_new.toLocaleString()}{discNoun}</b>이에요.
+              </Lede>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.8rem", margin: "1.3rem 0 1rem" }}>
+              <CatStat title="신규 트랙" color={CAT.track.main} value={discoverySummary.track.total_new} unit="곡" />
+              <CatStat title="신규 아티스트" color={CAT.artist.main} value={discoverySummary.artist.total_new} unit="명" />
+              <CatStat title="신규 앨범" color={CAT.album.main} value={discoverySummary.album.total_new} unit="개" />
+            </div>
+
+            {/* 곡 / 아티스트 / 앨범 전환: 아래 월별 그래프와 최근 발견 목록이 함께 바뀐다 */}
+            <div className="aym-seg" role="group" aria-label="발견 종류" style={{ margin: "0.4rem 0 0.8rem" }}>
+              {(["track", "artist", "album"] as Cat[]).map((c) => (
+                <button key={c} aria-pressed={discoveryCat === c} onClick={() => setDiscoveryCat(c)}>
+                  {c === "track" ? "곡" : c === "artist" ? "아티스트" : "앨범"}
+                </button>
+              ))}
+            </div>
+
+            <div className="aym-h3">
+              <h3>월별 신규 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"} 수</h3>
+            </div>
+            <Reveal className="aym-panel" minHeight={300}>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart
+                  data={discoverySummary[discoveryCat].months.map((m, i) => ({
+                    period: m,
+                    count: discoverySummary[discoveryCat].counts[i],
+                  }))}
+                >
+                  <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="period" tick={AXIS_TICK} axisLine={false} tickLine={false} minTickGap={28} />
+                  <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={44} />
+                  <Tooltip {...TIP} />
+                  <Line type="monotone" dataKey="count" stroke={CAT[discoveryCat].main} strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} name="신규 수" />
+                </LineChart>
+              </ResponsiveContainer>
+            </Reveal>
+
+            <div className="aym-h3">
+              <h3>최근 발견한 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"}</h3>
+              <button onClick={() => openListInLibrary(discoveryCat, "first")}>전체 보기 (음악 · 처음 들은 순) →</button>
+            </div>
+            <DiscoveryList cat={discoveryCat} query={buildQuery} onOpen={openInLibrary} limit={5} />
+          </>
+        )}
+      </section>
+
+      {/* ───────── 05 취향 ───────── */}
+      <section id="taste" className="aym-sec" style={tasteReached ? undefined : { minHeight: 700 }}>
+        <Eyebrow id="taste" />
+        {tasteReached && (
         <>
-          <div style={{ display: "flex", justifyContent: "flex-end", margin: "0.4rem 0" }}>
-            <ShareButton spec={{ kind: "period", card: "summary", period: "all" }} label="🖼 요약 이미지 만들기" />
-          </div>
-          <OverviewCards
-            query={buildQuery}
-            firstScrobble={stats.first_scrobble}
-            totalScrobbles={stats.total_scrobbles}
-            timeSummary={timeSummary}
-            isAllTime={!dateRange.start && !dateRange.end}
-          />
-
-          <FunFactCard />
-
-          <DecadeCard query={buildQuery} />
+          {divMost && divLeast && divMost.k !== divLeast.k ? (
+            <Lede small>
+              {DIV_LABEL[divMost.k]} <b className="num">{divMost.score}점</b>으로 가장 고르게 듣지만, {DIV_LABEL[divLeast.k]} <b>상위 10%가 전체의 {divLeast.top}%</b>를 차지해요.
+            </Lede>
+          ) : (
+            <Skeleton lines={1} height={34} style={{ marginTop: 14 }} />
+          )}
 
           {diversity && (
             <>
-              <h2>음악 소비 다양성</h2>
-              <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
+              <div className="aym-h3"><h3>음악 소비 다양성</h3><span>100점에 가까울수록 고르게 들어요</span></div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.8rem" }}>
                 {(["artist", "track", "album"] as const).map((key) => {
                   const label = { artist: "아티스트", track: "트랙", album: "앨범" }[key];
                   const m = diversity[key];
+                  const score = Math.round(m.normalized_entropy * 100);
                   return (
-                    <div
-                      key={key}
-                      style={{
-                        flex: 1,
-                        minWidth: 220,
-                        border: "1px solid #eee",
-                        borderRadius: 8,
-                        padding: "1rem",
-                      }}
-                    >
-                      <h3 style={{ marginTop: 0 }}>{label}</h3>
-                      <p>다양성 점수: {(m.normalized_entropy * 100).toFixed(0)} / 100</p>
-                      <p>상위 10%가 전체의 {m.top10pct_concentration}% 차지</p>
-                      <p style={{ color: "#888", fontSize: "0.85rem" }}>
+                    <div key={key} className="aym-panel">
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-2)", fontWeight: 600 }}>
+                          <i style={{ width: 8, height: 8, borderRadius: "50%", background: CAT[key].main, display: "inline-block" }} />
+                          {label}
+                        </span>
+                        <b className="num" style={{ fontSize: "1.8rem" }}>{score}</b>
+                      </div>
+                      <div style={{ height: 10, borderRadius: 5, background: "var(--surface-2)", margin: "0.6rem 0" }}>
+                        <div style={{ width: `${score}%`, height: "100%", borderRadius: 5, background: CAT[key].main }} />
+                      </div>
+                      <p style={{ fontSize: "0.9rem", color: "var(--text-2)" }}>상위 10%가 전체의 {m.top10pct_concentration}% 차지</p>
+                      <p style={{ color: "var(--text-3)", fontSize: "0.82rem", marginTop: 4 }}>
                         가장 많이 들은 {label}: {m.most_played.name ?? "-"} ({m.most_played.count}회)
                       </p>
                     </div>
@@ -1216,172 +1521,20 @@ const handleCopyPrompt = () => {
               </div>
             </>
           )}
-          <h2>청취 활동 히트맵</h2>
-          <MetricToggle metric={metric} onChange={setMetric} />
-          <ContributionHeatmap data={dailyData} onDayClick={handleDayClick} format={fmtVal} />
-        </>
-      )}
 
-      {/* Listening 탭 */}
-      {activeTab === "listening" && (
-        <>
-        <MetricToggle metric={metric} onChange={setMetric} />
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "1rem", flexWrap: "wrap" }}>
-          <h2>청취 시계</h2>
-          <ShareButton spec={{ kind: "period", card: "clock", period: "all", metric }} />
-        </div>
-        <ListeningClock data={hourlyData} format={fmtVal} noun={metric === "time" ? "청취 시간" : "스크로블"} />
-
-          <h2>주간 {metric === "time" ? "청취 시간" : "스크로블"}</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={weekdayData}>
-              <defs>
-                <linearGradient id="weeklyGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#8884d8" stopOpacity={0.6} />
-                  <stop offset="95%" stopColor="#8884d8" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis tickFormatter={axisFmt} />
-              <Tooltip formatter={(v) => fmtVal(Number(v))} />
-              <Area type="monotone" dataKey="count" stroke="#8884d8" strokeWidth={2} fill="url(#weeklyGradient)" />
-            </AreaChart>
-          </ResponsiveContainer>
-          {weekdayData.length > 0 && (
-            <p style={{ color: "#888" }}>
-              가장 바쁜 요일: {[...weekdayData].sort((a, b) => b.count - a.count)[0].label} (
-              {fmtVal([...weekdayData].sort((a, b) => b.count - a.count)[0].count)})
-            </p>
-          )}
-
-          <h2>월별 청취 추이</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={monthlyData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis tickFormatter={axisFmt} />
-              <Tooltip formatter={(v) => fmtVal(Number(v))} />
-              <Line type="monotone" dataKey="count" stroke="#8884d8" />
-            </LineChart>
-          </ResponsiveContainer>
-
-          <h2>연도별 청취 추이</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={yearlyData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="label" />
-              <YAxis tickFormatter={axisFmt} />
-              <Tooltip formatter={(v) => fmtVal(Number(v))} />
-              <Bar dataKey="count" fill="#82ca9d" />
-            </BarChart>
-          </ResponsiveContainer>
-        </>
-      )}
-
-      {/* Music 탭 */}
-      {/* Music 탭: Top 10 · 순위 목록 · 상세 (정렬: 많이/오래/꾸준히/몰아/처음 들은 순) */}
-      {activeTab === "music" && <Library query={buildQuery} request={libraryRequest} />}
-
-      {/* Discovery 탭 */}
-      {activeTab === "discovery" && !discoverySummary && <Skeleton lines={4} height={60} />}
-      {activeTab === "discovery" && discoverySummary && (
-        <>
-          <h2 style={{ textAlign: "left" }}>새로 발견한 음악</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.8rem", margin: "0.6rem 0 1rem" }}>
-            <CatStat title="신규 트랙" color={CAT.track.main} value={discoverySummary.track.total_new} unit="곡" />
-            <CatStat title="신규 아티스트" color={CAT.artist.main} value={discoverySummary.artist.total_new} unit="명" />
-            <CatStat title="신규 앨범" color={CAT.album.main} value={discoverySummary.album.total_new} unit="개" />
-          </div>
-
-          {/* 곡 / 아티스트 / 앨범 전환: 아래 월별 그래프와 최근 발견 목록이 함께 바뀐다 */}
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", margin: "0.4rem 0 0.8rem" }}>
-            {(["track", "artist", "album"] as Cat[]).map((c) => (
-              <button
-                key={c}
-                onClick={() => setDiscoveryCat(c)}
-                style={{
-                  padding: "0.35rem 0.9rem",
-                  fontWeight: discoveryCat === c ? 700 : 400,
-                  borderStyle: "solid",
-                  borderWidth: discoveryCat === c ? "2px 2px 3px 2px" : "1px 1px 3px 1px",
-                  borderColor: discoveryCat === c ? CAT[c].main : `#666 #666 ${CAT[c].main} #666`,
-                  color: discoveryCat === c ? CAT[c].main : undefined,
-                }}
-              >
-                {c === "track" ? "곡" : c === "artist" ? "아티스트" : "앨범"}
-              </button>
-            ))}
-          </div>
-
-          <h3 style={{ textAlign: "left", borderLeft: `4px solid ${CAT[discoveryCat].main}`, paddingLeft: "0.6rem" }}>
-            월별 신규 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"} 수
-          </h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart
-              data={discoverySummary[discoveryCat].months.map((m, i) => ({
-                period: m,
-                count: discoverySummary[discoveryCat].counts[i],
-              }))}
-            >
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="count" stroke={CAT[discoveryCat].main} strokeWidth={2} name="신규 수" />
-            </LineChart>
-          </ResponsiveContainer>
-
-          <h3 style={{ textAlign: "left", borderLeft: `4px solid ${CAT[discoveryCat].main}`, paddingLeft: "0.6rem" }}>
-            최근 발견한 {discoveryCat === "track" ? "곡" : discoveryCat === "artist" ? "아티스트" : "앨범"}
-          </h3>
-          <DiscoveryList cat={discoveryCat} query={buildQuery} onOpen={openInLibrary} limit={5} />
-          <div style={{ textAlign: "right", marginTop: "0.5rem" }}>
-            <button onClick={() => openListInLibrary(discoveryCat, "first")} style={{ background: "none", border: "none", color: "#6a9bd8", cursor: "pointer", font: "inherit" }}>
-              전체 보기 (Music 탭 · 처음 들은 순) →
-            </button>
-          </div>
-        </>
-      )}
-
-      {/* Race 탭 */}
-      {activeTab === "race" && <RaceTab query={buildQuery} />}
-
-      {/* Taste 탭 */}
-      {activeTab === "taste" && (
-        <>
           {tagDistribution && <TagDistributionCard distribution={tagDistribution} query={buildQuery} baseLabel={dateRange.label} />}
 
           {tagEvolution && tagEvolution.periods.length > 0 && (
             <>
-              <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap", margin: "3rem 0 1rem" }}>
-                <h2 style={{ margin: 0 }}>취향 변화 (월별 장르 트렌드)</h2>
-                <div>
-                  <button
-                    onClick={() => setEvolutionMode("fixed")}
-                    style={{
-                      padding: "0.3rem 0.8rem",
-                      marginLeft: "0.4rem",
-                      fontWeight: evolutionMode === "fixed" ? 700 : 400,
-                      border: evolutionMode === "fixed" ? "2px solid #8884d8" : "1px solid #666",
-                    }}
-                  >
-                    전체 기간 기준
-                  </button>
-                  <button
-                    onClick={() => setEvolutionMode("dynamic")}
-                    style={{
-                      padding: "0.3rem 0.8rem",
-                      marginLeft: "0.4rem",
-                      fontWeight: evolutionMode === "dynamic" ? 700 : 400,
-                      border: evolutionMode === "dynamic" ? "2px solid #8884d8" : "1px solid #666",
-                    }}
-                  >
-                    월별 실제 순위
-                  </button>
+              <div className="aym-h3">
+                <h3>취향 변화 (월별 장르 트렌드)</h3>
+                <div className="aym-seg" role="group" aria-label="취향 변화 기준">
+                  <button aria-pressed={evolutionMode === "fixed"} onClick={() => setEvolutionMode("fixed")}>전체 기간 기준</button>
+                  <button aria-pressed={evolutionMode === "dynamic"} onClick={() => setEvolutionMode("dynamic")}>월별 실제 순위</button>
                 </div>
               </div>
 
+              <Reveal className="aym-panel" minHeight={440}>
               {evolutionMode === "fixed" ? (
                 <ResponsiveContainer width="100%" height={400}>
                   <AreaChart
@@ -1393,14 +1546,12 @@ const handleCopyPrompt = () => {
                       return row;
                     })}
                   >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                    <YAxis />
+                    <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="period" tick={AXIS_TICK} axisLine={false} tickLine={false} minTickGap={28} />
+                    <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={44} />
                     <Tooltip content={<SortedTagTooltip />} />
                     {tagEvolution.series.map((s, i) => {
-                      const color = ["#8884d8", "#82ca9d", "#ff7f50", "#ffc658", "#a4de6c", "#d0ed57", "#d62728", "#9467bd"][
-                        i % 8
-                      ];
+                      const color = TAG_COLORS[i % 8];
                       return (
                         <Area
                           key={s.tag}
@@ -1426,27 +1577,28 @@ const handleCopyPrompt = () => {
                       return row;
                     })}
                   >
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="period" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={60} />
-                    <YAxis />
+                    <CartesianGrid stroke={GRID_STROKE} strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="period" tick={AXIS_TICK} axisLine={false} tickLine={false} minTickGap={28} />
+                    <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={44} />
                     <Tooltip content={<SortedTagTooltip />} />
                     {tagEvolution.series.map((s, i) => (
                       <Line
                         key={s.tag}
                         type="monotone"
                         dataKey={s.tag}
-                        stroke={["#8884d8", "#82ca9d", "#ff7f50", "#ffc658", "#a4de6c", "#d0ed57", "#d62728", "#9467bd"][i % 8]}
+                        stroke={TAG_COLORS[i % 8]}
                         connectNulls={false}
                       />
                     ))}
                   </LineChart>
                 </ResponsiveContainer>
               )}
+              </Reveal>
             </>
           )}
-          <h2 style={{ textAlign: "left", borderLeft: `4px solid ${CAT.artist.main}`, paddingLeft: "0.6rem" }}>
-            아티스트별 태그 {totalTagsPages && `(${artistTags.length} / ${stats.unique_artists})`}
-          </h2>
+          <div className="aym-h3">
+            <h3>아티스트별 태그 {totalTagsPages && `(${artistTags.length} / ${stats.unique_artists})`}</h3>
+          </div>
           <div style={{ textAlign: "left" }}>
             {artistTags.map((a, i) => (
               <RankRow
@@ -1487,11 +1639,34 @@ const handleCopyPrompt = () => {
             <p style={{ marginTop: "1rem", color: "#888" }}>전체 아티스트를 다 불러왔습니다.</p>
           )}
         </>
-      )}
+        )}
+      </section>
 
-      {/* Data 탭 */}
-      {activeTab === "data" && (
-        <div style={{ maxWidth: 760, margin: "0 auto", textAlign: "left", display: "grid", gap: "1.5rem" }}>
+      {/* ───────── 06 레이스 ───────── */}
+      <section id="race" className="aym-sec" style={raceReached ? undefined : { minHeight: 500 }}>
+        <Eyebrow id="race" />
+        {raceReached && <RaceTab query={buildQuery} />}
+      </section>
+
+      {/* ───────── 07 데이터 ───────── 관리·설정·검증 */}
+      <section id="data" className="aym-sec" style={dataReached ? undefined : { minHeight: 500 }}>
+        <Eyebrow id="data" />
+        {dataReached && (
+          <>
+            {timeSummary && perDay !== null && (
+              <Lede small>
+                <b className="num">{timeSummary.days.toLocaleString()}일</b> 중 <b className="num">{timeSummary.active_days.toLocaleString()}일</b> 동안 듣고, 하루 평균 <b className="num">{perDay.toLocaleString()}번</b>씩 <b className="num">{stats.total_scrobbles.toLocaleString()}번</b>의 기록이 쌓였어요.
+              </Lede>
+            )}
+            <Facts
+              items={[
+                { label: "마지막 스크로블", value: stats.last_scrobble ? stats.last_scrobble.slice(0, 10).replace(/-/g, ".") : "-" },
+                ...(tagDistribution ? [{ label: "장르 태그 반영", value: `${tagDistribution.total_artists ? Math.round((tagDistribution.covered_artists / tagDistribution.total_artists) * 100) : 0}%`, sub: `${tagDistribution.covered_artists.toLocaleString()} / ${tagDistribution.total_artists.toLocaleString()}명` }] : []),
+                ...(timeSummary ? [{ label: "길이를 아는 재생", value: `${Math.round(timeSummary.coverage * 100)}%` }] : []),
+                ...(validation ? [{ label: "데이터 검사", value: validation.valid ? (validation.warnings.length ? `경고 ${validation.warnings.length}건` : "이상 없음") : "문제 있음" }] : []),
+              ]}
+            />
+        <div style={{ maxWidth: 860, textAlign: "left", display: "grid", gap: "1.2rem", marginTop: "1.6rem" }}>
           {/* AI 분석용 프롬프트 */}
           <section style={DATA_PANEL}>
             <h2 style={DATA_TITLE}>AI 분석용 프롬프트 생성</h2>
@@ -1599,10 +1774,10 @@ const handleCopyPrompt = () => {
                 {validation.valid && validation.warnings.length > 0 && (
                   <div
                     style={{
-                      background: "#fff3cd",
-                      color: "#222",
-                      border: "1px solid #e0a800",
-                      borderRadius: 8,
+                      background: "rgba(255,184,107,0.12)",
+                      color: "var(--text)",
+                      border: "1px solid rgba(255,184,107,0.5)",
+                      borderRadius: 14,
                       padding: "0.9rem 1rem",
                       marginBottom: "1rem",
                     }}
@@ -1617,7 +1792,7 @@ const handleCopyPrompt = () => {
                 )}
 
                 {validation.valid && validation.warnings.length === 0 && (
-                  <p style={{ color: "#2a2", margin: "0 0 1rem" }}>✅ 검증 통과, 문제 없음</p>
+                  <p style={{ color: "var(--album)", margin: "0 0 1rem" }}>✅ 검증 통과, 문제 없음</p>
                 )}
               </>
             )}
@@ -1638,8 +1813,10 @@ const handleCopyPrompt = () => {
             {invalidateMessage && <p style={{ margin: "0.6rem 0 0", color: "#999" }}>{invalidateMessage}</p>}
           </section>
         </div>
-      )}
-      </div>
+          </>
+        )}
+      </section>
+      </main>
 
       {selectedDay && (
         <DayDetailModal

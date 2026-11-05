@@ -10,8 +10,17 @@ export const CAT: Record<Cat, { main: string; soft: string; label: string }> = {
 };
 
 export const SCROBBLE_COLOR = "#ffcace";      // 스크로블(전체 재생 수) 카드: 연한 분홍
-export const CARD_INK = "#1a1b1e";            // 색 카드 위의 글자색
 export const MUTED = "#a7acb7";               // 보조 글자색
 
-// 오른쪽 위 모서리를 접은 모양 (dog-ear)
-export const DOG_EAR = "polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%)";
+// 카테고리 선택 알약: 켜지면 카테고리 색으로 채우고, 꺼져 있어도 아래 색 줄로 어떤 색인지 보인다
+export function catPill(active: boolean, color: string): import("react").CSSProperties {
+  return {
+    padding: "0.38rem 1rem",
+    border: "none",
+    borderRadius: 999,
+    background: active ? color : "var(--surface-2)",
+    color: active ? "#1a1b1e" : "var(--text)",
+    fontWeight: active ? 800 : 600,
+    boxShadow: active ? "none" : `inset 0 -3px 0 ${color}`,
+  };
+}

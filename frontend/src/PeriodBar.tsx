@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { BASE_URL } from "./config";
-import { MUTED } from "./theme";
 
 // 기간 선택 한 곳으로 통합:
 //   [ 2026년 9월 ▾ ]  ← 누르면 빠른 선택 / 연도 / 직접 입력 팝오버
@@ -31,31 +30,34 @@ function lastDays(n: number): PeriodRange {
   return { start: iso(start), end: iso(end), label: `최근 ${n}일` };
 }
 
+const MUTED = "var(--text-3)";
+
 const chip = (active: boolean, disabled = false): CSSProperties => ({
   flexShrink: 0,
-  padding: "0.3rem 0.85rem",
+  padding: "0.35rem 0.95rem",
   border: "none",
   borderRadius: 999,
-  background: active ? "rgba(128,128,128,0.28)" : "transparent",
-  color: active ? "CanvasText" : MUTED,
-  fontWeight: active ? 800 : 500,
-  fontSize: "1rem",
+  background: active ? "var(--text)" : "var(--surface)",
+  color: active ? "#111" : "var(--text-2)",
+  fontWeight: active ? 800 : 600,
+  fontSize: "0.92rem",
   opacity: disabled ? 0.3 : 1,
   cursor: disabled ? "default" : "pointer",
 });
 
 const menuBtn = (active = false): CSSProperties => ({
-  padding: "0.4rem 0.5rem",
+  padding: "0.45rem 0.5rem",
   border: "none",
-  borderRadius: 8,
-  background: active ? "rgba(128,128,128,0.28)" : "rgba(128,128,128,0.12)",
-  color: "CanvasText",
-  fontWeight: active ? 700 : 500,
+  borderRadius: 12,
+  background: active ? "var(--text)" : "var(--surface-2)",
+  color: active ? "#111" : "var(--text)",
+  fontWeight: active ? 800 : 600,
   cursor: "pointer",
   textAlign: "center",
 });
 
-export function PeriodBar({ range, onChange }: { range: PeriodRange; onChange: (r: PeriodRange) => void }) {
+// variant: "button" = 위쪽 바의 기간 버튼(+팝오버)만, "chips" = 본문 위의 연도·월 칩 줄만, 생략하면 둘 다
+export function PeriodBar({ range, onChange, variant = "all" }: { range: PeriodRange; onChange: (r: PeriodRange) => void; variant?: "button" | "chips" | "all" }) {
   const [months, setMonths] = useState<MonthInfo[]>([]);
   const [open, setOpen] = useState(false);
   const [from, setFrom] = useState("");
@@ -111,10 +113,9 @@ export function PeriodBar({ range, onChange }: { range: PeriodRange; onChange: (
     onChange(r);
     setOpen(false);
   };
-  const strip: CSSProperties = { display: "flex", gap: "0.2rem", overflowX: "auto", whiteSpace: "nowrap", flex: 1, minWidth: 0, scrollbarWidth: "none", alignItems: "center" };
+  const strip: CSSProperties = { display: "flex", gap: "0.4rem", overflowX: "auto", whiteSpace: "nowrap", flex: 1, minWidth: 0, scrollbarWidth: "none", alignItems: "center" };
 
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", margin: "0.3rem 0 0.8rem" }}>
+  const buttonPart = (
       <div ref={boxRef} style={{ position: "relative", flexShrink: 0 }}>
         <button
           onClick={() => {
@@ -124,7 +125,7 @@ export function PeriodBar({ range, onChange }: { range: PeriodRange; onChange: (
           }}
           aria-haspopup="dialog"
           aria-expanded={open}
-          style={{ padding: "0.4rem 0.95rem", border: "none", borderRadius: 999, background: "rgba(128,128,128,0.22)", color: "CanvasText", fontWeight: 800, fontSize: "1rem", cursor: "pointer" }}
+          style={{ padding: "0.45rem 1rem", border: "none", borderRadius: 999, background: "var(--key)", color: "#fff", fontWeight: 800, fontSize: "0.92rem", cursor: "pointer", whiteSpace: "nowrap" }}
         >
           {range.label} <span style={{ opacity: 0.7 }}>▾</span>
         </button>
@@ -136,15 +137,16 @@ export function PeriodBar({ range, onChange }: { range: PeriodRange; onChange: (
             style={{
               position: "absolute",
               top: "calc(100% + 8px)",
-              left: 0,
-              zIndex: 30,
+              right: 0,
+              zIndex: 60,
               width: 300,
+              maxWidth: "calc(100vw - 28px)",
               padding: "0.9rem",
-              borderRadius: 14,
-              background: "Canvas",
-              color: "CanvasText",
-              border: "1px solid rgba(128,128,128,0.35)",
-              boxShadow: "0 12px 36px rgba(0,0,0,0.45)",
+              borderRadius: 20,
+              background: "#18181b",
+              color: "var(--text)",
+              border: "1px solid var(--line)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
               textAlign: "left",
             }}
           >
@@ -195,7 +197,9 @@ export function PeriodBar({ range, onChange }: { range: PeriodRange; onChange: (
         )}
       </div>
 
-      {years.length > 0 && (
+  );
+
+  const chipsPart = years.length > 0 && (
         <div ref={stripRef} style={strip} role="tablist" aria-label="기간 칩">
           {monthStrip && selectedYear !== null ? (
             <>
@@ -231,7 +235,14 @@ export function PeriodBar({ range, onChange }: { range: PeriodRange; onChange: (
             </>
           )}
         </div>
-      )}
+  );
+
+  if (variant === "button") return buttonPart;
+  if (variant === "chips") return chipsPart ? <div style={{ margin: "1rem 0 0" }}>{chipsPart}</div> : null;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", margin: "0.3rem 0 0.8rem" }}>
+      {buttonPart}
+      {chipsPart}
     </div>
   );
 }

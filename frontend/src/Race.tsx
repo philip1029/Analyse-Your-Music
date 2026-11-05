@@ -5,6 +5,7 @@ import { LINE } from "./RankRow";
 import { cover } from "./Share";
 import { tagEmoji } from "./tagEmoji";
 import { MUTED } from "./theme";
+import { dominantColor } from "./coverColor";
 
 // Bar chart race: 기간(월/주)이 흘러가면서 누적 재생 순위가 바뀌는 모습을 canvas 로 그린다 (막대가 자라고 순위가 휙휙 바뀐다).
 // 같은 canvas 를 MediaRecorder 로 녹화해서 영상(mp4/webm)으로 저장할 수 있다. 서버는 기간별 누적 값만 주고, 기간 사이 보간과 순위 정렬은 여기서 한다.
@@ -115,65 +116,6 @@ type View = {
   scale: { max: number };
   lead: { key: string | null; flash: number; held: number };   // 1위가 바뀌면 flash 가 1 로 올라가고 서서히 줄어든다 (held: 지금 1위가 자리를 지킨 시간)
 };
-
-function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
-  const R = r / 255, G = g / 255, B = b / 255;
-  const mx = Math.max(R, G, B), mn = Math.min(R, G, B), d = mx - mn;
-  const l = (mx + mn) / 2;
-  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
-  let h = 0;
-  if (d > 0) h = mx === R ? ((G - B) / d) % 6 : mx === G ? (B - R) / d + 2 : (R - G) / d + 4;
-  return [((h * 60) + 360) % 360, s, l];
-}
-
-// 커버 이미지에서 막대 색을 뽑는다. 색이 있는 픽셀(채도 22% 이상, 너무 밝거나 어둡지 않은)을 색상(hue) 24칸에 모아 가장 많이 쌓인 색상 둘레를 쓴다
-// (평균을 내면 파랑+주황이 섞여 엉뚱한 색이 되기 때문). 색 있는 픽셀이 4% 미만인 무채색 커버(흰 바탕·흑백 등)는 커버의 평균 색을 연한 회색 톤으로 쓴다.
-function dominantColor(img: HTMLImageElement): string | null {
-  try {
-    const N = 32;
-    const c = document.createElement("canvas");
-    c.width = c.height = N;
-    const g = c.getContext("2d", { willReadFrequently: true });
-    if (!g) return null;
-    g.drawImage(img, 0, 0, N, N);
-    const d = g.getImageData(0, 0, N, N).data;
-    const BINS = 24;
-    const wsum = new Array<number>(BINS).fill(0);
-    const sums = Array.from({ length: BINS }, () => [0, 0, 0, 0]);   // r, g, b, weight
-    let colored = 0, ar = 0, ag = 0, ab = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      const R = d[i], G = d[i + 1], B = d[i + 2];
-      ar += R; ag += G; ab += B;
-      const [h, s, l] = rgbToHsl(R, G, B);
-      if (s >= 0.22 && l > 0.15 && l < 0.9) {
-        colored++;
-        const w = s * Math.max(0.05, 1 - Math.abs(l - 0.5) * 1.2);
-        const bin = Math.floor((h / 360) * BINS) % BINS;
-        wsum[bin] += w;
-        sums[bin][0] += R * w; sums[bin][1] += G * w; sums[bin][2] += B * w; sums[bin][3] += w;
-      }
-    }
-    const px = d.length / 4;
-    if (colored / px >= 0.04) {
-      let best = 0, bestScore = -1;
-      for (let b = 0; b < BINS; b++) {
-        const score = wsum[b] + 0.5 * (wsum[(b + BINS - 1) % BINS] + wsum[(b + 1) % BINS]);
-        if (score > bestScore) { bestScore = score; best = b; }
-      }
-      let r = 0, gr = 0, bl = 0, w = 0;
-      for (const b of [best - 1, best, best + 1]) {
-        const q = sums[(b + BINS) % BINS];
-        r += q[0]; gr += q[1]; bl += q[2]; w += q[3];
-      }
-      const [h, s] = rgbToHsl(r / w, gr / w, bl / w);
-      return `hsl(${Math.round(h)} ${Math.round(Math.min(0.85, Math.max(0.5, s)) * 100)}% 58%)`;
-    }
-    const [h, s, l] = rgbToHsl(ar / px, ag / px, ab / px);
-    return `hsl(${Math.round(h)} ${Math.round(Math.min(0.15, s) * 100)}% ${Math.round(Math.min(0.8, Math.max(0.55, l)) * 100)}%)`;
-  } catch {
-    return null;                                           // 이미지가 canvas 를 오염시켰거나 못 읽으면 기본 색
-  }
-}
 
 // 한 프레임 그리기: t 는 기간 번호(소수). ys/scale 은 프레임마다 이어서 갱신되는 애니메이션 상태(순위 위치·축 길이)다.
 function drawFrame(ctx: CanvasRenderingContext2D, v: View, t: number, dt: number) {
@@ -360,15 +302,24 @@ const yieldNow = () =>
   });
 
 const pill = (on: boolean): CSSProperties => ({
-  padding: "0.25rem 0.8rem",
+  padding: "0.3rem 0.95rem",
   borderRadius: 999,
-  border: on ? "1px solid #ff7f50" : LINE,
-  background: on ? "#ff7f50" : "transparent",
-  color: on ? "#1a1b1e" : "inherit",
-  fontWeight: on ? 700 : 500,
+  border: "none",
+  background: on ? "var(--text)" : "var(--surface-2)",
+  color: on ? "#111" : "var(--text)",
+  fontWeight: on ? 800 : 600,
   fontSize: "0.85rem",
   cursor: "pointer",
 });
+
+// ── 1위 변천 문장에 쓰는 도우미 (모두 규칙 기반)
+const STEP_UNIT: Record<Step, string> = { month: "개월", week: "주", day: "일" };
+// 받침이 있는 한글 이름은 "이", 그 밖(받침 없음·영문 등)은 "가"
+const iga = (w: string) => {
+  const c = w.charCodeAt(w.length - 1);
+  return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 !== 0 ? "이" : "가";
+};
+const periodKo = (label: string, step: Step) => (step === "month" && /^\d{4}-\d{2}$/.test(label) ? `${label.slice(0, 4)}년 ${Number(label.slice(5))}월` : label);
 
 export function RaceTab({ query }: { query: (extra?: Record<string, string | number>) => string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -697,11 +648,45 @@ export function RaceTab({ query }: { query: (extra?: Record<string, string | num
   };
 
   const periods = race?.periods.length ?? 0;
+
+  // 기간마다 1위를 가려서 "누가 얼마나 1위를 지켰나"를 문장과 수치 칩으로 보여 준다
+  let lede: React.ReactNode = null;
+  if (race && race.entities.length > 0 && race.periods.length > 0) {
+    const leaders = race.periods.map((_, i) => race.entities.reduce((a, b) => ((b.values[i] ?? 0) > (a.values[i] ?? 0) ? b : a)).name);
+    const segs: { name: string; from: number; len: number }[] = [];
+    leaders.forEach((n, i) => {
+      const last = segs[segs.length - 1];
+      if (last && last.name === n) last.len++;
+      else segs.push({ name: n, from: i, len: 1 });
+    });
+    const unit = STEP_UNIT[race.step];
+    const first = segs[0];
+    const cur = segs[segs.length - 1];
+    const longest = segs.reduce((a, b) => (b.len > a.len ? b : a));
+    const curVal = race.entities.find((e) => e.name === cur.name)?.values.at(-1) ?? 0;
+    lede = (
+      <>
+        <p className="aym-lede sm">
+          {segs.length === 1 ? (
+            <><b>{cur.name}</b>{iga(cur.name)} 처음부터 지금까지 줄곧 1위예요.</>
+          ) : (
+            <>처음 {first.len}{unit}은 <b>{first.name}</b>{iga(first.name)} 1위였고, <b>{periodKo(race.periods[cur.from].label, race.step)}</b>부터 <b>{cur.name}</b>{iga(cur.name)} {cur.len}{unit}째 1위를 지키고 있어요.</>
+          )}
+        </p>
+        <div className="aym-facts">
+          <div className="aym-fact"><small>1위가 바뀐 횟수</small><b>{segs.length - 1}<em>번</em></b></div>
+          <div className="aym-fact"><small>현재 1위</small><b>{cur.name}<em>{curVal.toLocaleString()}</em></b></div>
+          <div className="aym-fact"><small>가장 오래 1위</small><b>{longest.name}<em>{longest.len}{unit}</em></b></div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <section style={{ textAlign: "left" }}>
-      <h2 style={{ marginBottom: "0.3rem" }}>Race <span style={{ color: MUTED, fontSize: "0.9rem", fontWeight: 500 }}>누적 순위가 바뀌는 모습</span></h2>
-      <p style={{ color: MUTED, fontSize: "0.85rem", margin: "0 0 0.8rem" }}>
-        시간이 흐르면서 순위가 휙휙 바뀌는 영상을 만들어요. 누적은 달(또는 주)마다 값을 쌓고, 최근 30일은 하루씩 넘기면서 그날까지 30일 동안의 값으로 순위를 매겨 착착 바뀝니다. 위쪽에서 고른 기간 안에서 계산해요.
+      {lede}
+      <p style={{ color: "var(--text-3)", fontSize: "0.85rem", margin: "0.9rem 0 1rem", maxWidth: 780 }}>
+        시간이 흐르면서 순위가 바뀌는 영상을 만들어요. 누적은 달(또는 주)마다 값을 쌓고, 최근 30일은 하루씩 넘기면서 그날까지 30일 동안의 값으로 순위를 매겨 착착 바뀝니다. 위쪽에서 고른 기간 안에서 계산해요.
       </p>
 
       <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center", marginBottom: "0.5rem" }}>

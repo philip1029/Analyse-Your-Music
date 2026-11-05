@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 // Apple Music 리플레이식 움직임: 숫자는 이전 값에서 새 값으로 굴러가고, 문장·목록은 아래에서 살짝 떠오르며 또렷해진다.
 // 움직임 줄이기 설정(prefers-reduced-motion)이면 모두 즉시 바뀐다. CSS 는 index.css 의 aym-* 클래스.
@@ -68,4 +68,38 @@ export function Skeleton({ lines = 3, height = 18, style }: { lines?: number; he
 // 목록 한 줄이 순서대로 떠오르게 하는 지연 값 (뒤쪽 항목이 너무 오래 기다리지 않도록 상한을 둔다)
 export function stagger(i: number, step = 28, max = 420): CSSProperties {
   return { animationDelay: `${Math.min(i * step, max)}ms` };
+}
+
+// 화면에 처음 보이는 순간 true 가 된다 (한 번만). 화면 밖에서 이미 끝나 버리는 애니메이션을 막고, 보이는 순간부터 시작하게 한다.
+// 움직임 줄이기 설정이거나 IntersectionObserver 가 없으면 처음부터 true.
+export function useInView<T extends Element = HTMLDivElement>(margin = "0px 0px -8% 0px") {
+  const ref = useRef<T>(null);
+  const [seen, setSeen] = useState(() => prefersReducedMotion() || typeof IntersectionObserver === "undefined");
+  useEffect(() => {
+    if (seen) return;
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setSeen(true);
+          io.disconnect();
+        }
+      },
+      { rootMargin: margin }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [seen, margin]);
+  return [ref, seen] as const;
+}
+
+// 화면에 보일 때 안쪽을 그린다: 차트가 그 순간부터 자기 애니메이션(펼쳐지기)을 시작한다. 그리기 전에도 자리(minHeight)는 잡아 둬서 레이아웃이 밀리지 않는다.
+export function Reveal({ children, minHeight, className, style }: { children: ReactNode; minHeight?: number; className?: string; style?: CSSProperties }) {
+  const [ref, seen] = useInView<HTMLDivElement>();
+  return (
+    <div ref={ref} className={className} style={{ minHeight: seen ? undefined : minHeight, ...style }}>
+      {seen && <div className="aym-tab">{children}</div>}
+    </div>
+  );
 }

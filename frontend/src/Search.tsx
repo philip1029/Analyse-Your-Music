@@ -23,6 +23,7 @@ export function SearchBox({ query, rangeLabel, onPick }: { query: (extra?: Recor
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const box = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // 입력이 멈추면(0.25초) 검색한다. 늦게 도착한 옛 응답은 버린다.
   useEffect(() => {
@@ -50,6 +51,19 @@ export function SearchBox({ query, rangeLabel, onPick }: { query: (extra?: Recor
       ctrl.abort();
     };
   }, [text, query]);
+
+  // ⌘K / Ctrl+K 로 검색창에 바로 간다
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // 바깥을 누르면 닫는다
   useEffect(() => {
@@ -81,8 +95,9 @@ export function SearchBox({ query, rangeLabel, onPick }: { query: (extra?: Recor
 
   let index = -1;
   return (
-    <div ref={box} style={{ position: "relative", flex: "1 1 220px", maxWidth: 420, marginLeft: "auto" }}>
+    <div ref={box} className="aym-search" style={{ position: "relative", flex: "1 1 220px", maxWidth: 380 }}>
       <input
+        ref={inputRef}
         type="search"
         value={text}
         onChange={(e) => {
@@ -91,12 +106,13 @@ export function SearchBox({ query, rangeLabel, onPick }: { query: (extra?: Recor
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onKey}
-        placeholder="🔍 아티스트 · 앨범 · 곡 검색"
+        placeholder={window.matchMedia("(max-width: 700px)").matches ? "검색" : "아티스트 · 앨범 · 곡 검색   ⌘K"}
         aria-label="검색"
-        style={{ width: "100%", boxSizing: "border-box", padding: "0.5rem 0.8rem", borderRadius: 8 }}
+        style={{ width: "100%", height: 36, padding: "0 1rem", borderRadius: 999, background: "var(--surface-2)", border: "1px solid transparent" }}
       />
       {open && text.trim() && (
         <div
+          className="aym-search-pop"
           style={{
             position: "absolute",
             top: "calc(100% + 4px)",
@@ -106,12 +122,12 @@ export function SearchBox({ query, rangeLabel, onPick }: { query: (extra?: Recor
             maxHeight: "70vh",
             overflowY: "auto",
             textAlign: "left",
-            background: "Canvas",
-            color: "CanvasText",
-            border: "1px solid rgba(128,128,128,0.4)",
-            borderRadius: 10,
-            boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-            padding: "0.3rem 0",
+            background: "#18181b",
+            color: "var(--text)",
+            border: "1px solid var(--line)",
+            borderRadius: 18,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+            padding: "0.4rem 0",
           }}
         >
           {loading && !result && <div style={{ padding: "0.7rem 1rem", color: "#999" }}>검색 중...</div>}
@@ -131,7 +147,7 @@ export function SearchBox({ query, rangeLabel, onPick }: { query: (extra?: Recor
                         aria-selected={i === active}
                         onMouseEnter={() => setActive(i)}
                         onClick={() => pick({ kind: g.kind, hit })}
-                        style={{ display: "flex", alignItems: "center", gap: "0.7rem", padding: "0.4rem 1rem", cursor: "pointer", background: i === active ? "rgba(128,128,128,0.2)" : "transparent" }}
+                        style={{ display: "flex", alignItems: "center", gap: "0.7rem", padding: "0.4rem 1rem", cursor: "pointer", background: i === active ? "rgba(255,255,255,0.1)" : "transparent" }}
                       >
                         {g.kind === "artist" ? <Cover kind="artist" artist={hit.name} size={32} /> : <Cover kind="album" artist={hit.artist} album={g.kind === "album" ? hit.name : hit.album} size={32} />}
                         <div style={{ flex: 1, minWidth: 0 }}>

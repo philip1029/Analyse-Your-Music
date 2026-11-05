@@ -764,7 +764,7 @@ function TrackView({
           <span style={{ fontWeight: 700, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{head.name}</span>
           <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.album ?? ""}</span>
           {p.source && (
-            <span title={p.source === "A" ? "Apple Music 기록 유래" : "Last.fm 기록"} style={{ fontSize: "0.7rem", color: "#999", border: LINE, borderRadius: 3, padding: "0 4px" }}>
+            <span title={p.source === "A" ? "Apple Music 기록 유래" : p.source === "M" ? "보관함의 로컬 파일 재생 (마지막 재생만 실제 시각, 나머지는 추정)" : "Last.fm 기록"} style={{ fontSize: "0.7rem", color: "#999", border: LINE, borderRadius: 3, padding: "0 4px" }}>
               {p.source}
             </span>
           )}

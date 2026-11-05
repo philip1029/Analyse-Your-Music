@@ -79,7 +79,7 @@ function NumUnits({ value, format, duration }: { value: number; format: (n: numb
   return (
     <span style={{ display: "inline-grid", fontVariantNumeric: "tabular-nums" }}>
       <span aria-hidden style={{ gridArea: "1 / 1", visibility: "hidden" }}>{render(format(value))}</span>
-      <span style={{ gridArea: "1 / 1", textAlign: "right" }}>{render(format(shown))}</span>
+      <span style={{ gridArea: "1 / 1", textAlign: "left" }}>{render(format(shown))}</span>
     </span>
   );
 }
@@ -127,7 +127,7 @@ function StoryCover({ kind, artist, album }: { kind: "artist" | "album"; artist:
   }, [kind, artist, album]);
   const letter = Array.from((kind === "artist" ? artist : album) ?? "♪")[0];
   return (
-    <div style={{ width: "52cqw", height: "52cqw", borderRadius: kind === "artist" ? "50%" : "3cqw", overflow: "hidden", boxShadow: "0 3cqw 8cqw rgba(0,0,0,0.5)", background: "rgba(255,255,255,0.12)", display: "grid", placeItems: "center", fontSize: "18cqw", fontWeight: 800, color: "rgba(255,255,255,0.5)" }}>
+    <div style={{ width: "min(52cqw, 27cqh)", height: "min(52cqw, 27cqh)", borderRadius: kind === "artist" ? "50%" : "3cqw", overflow: "hidden", boxShadow: "0 3cqw 8cqw rgba(0,0,0,0.5)", background: "rgba(255,255,255,0.12)", display: "grid", placeItems: "center", fontSize: "18cqw", fontWeight: 800, color: "rgba(255,255,255,0.5)" }}>
       {src ? <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} /> : letter}
     </div>
   );
@@ -150,7 +150,7 @@ function TopSlide({ kind, items, total, year }: { kind: "artist" | "album" | "tr
       </Rise>
       <Rise i={3} style={{ marginTop: "3cqw" }}>
         <div style={{ fontSize: "5.2cqw", fontWeight: 800 }}>
-          <b className="num" style={{ fontSize: "9cqw" }}><Num value={first.count} align="end" /></b>번 들었어요 <span style={{ ...sub, fontSize: "3.6cqw" }}>· 전체의 {pct(first.count, total)}%</span>
+          <b className="num" style={{ fontSize: "9cqw" }}><Num value={first.count} /></b>번 들었어요 <span style={{ ...sub, fontSize: "3.6cqw" }}>· 전체의 {pct(first.count, total)}%</span>
         </div>
       </Rise>
       <Rise i={4} style={{ marginTop: "4cqw" }}>
@@ -197,7 +197,7 @@ function buildSlides(year: number, d: Data, tints: Record<string, string>, parti
           <Rise i={0}><div style={label}>{year} · 청취 시간</div></Rise>
           <Rise i={1} style={{ marginTop: "6cqw" }}>
             <div style={lede}>{year}년에 음악을</div>
-            <div style={{ ...huge, fontSize: "15cqw", marginTop: "2cqw", letterSpacing: "-0.03em" }}><NumUnits value={d.time.total_seconds} format={fmtHM} duration={1400} /></div>
+            <div style={{ ...huge, fontSize: "13.5cqw", marginTop: "2cqw", letterSpacing: "-0.03em" }}><NumUnits value={d.time.total_seconds} format={fmtHM} duration={1400} /></div>
             <div style={{ ...lede, marginTop: "2cqw" }}>들었어요.</div>
           </Rise>
           <Rise i={2} style={{ marginTop: "8cqw" }}>

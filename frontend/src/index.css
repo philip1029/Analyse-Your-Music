@@ -290,7 +290,7 @@ a { color: inherit; }
 .aym-story-back { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, 0.78); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); display: flex; align-items: center; justify-content: center; gap: 18px; animation: aym-fade 200ms ease-out both; }
 /* 글자·간격은 카드 너비 기준(cqw)이라 폰·PC 어디서나 같은 비율로 보인다 */
 .aym-story { position: relative; container-type: size; width: min(100vw, calc(min(94svh, 920px) * 9 / 16)); height: min(100svh, min(94svh, 920px)); border-radius: 28px; overflow: hidden; background: #0e0e10; color: #fff; box-shadow: 0 30px 100px rgba(0, 0, 0, 0.7); user-select: none; }
-.aym-story-slide { position: absolute; inset: 0; z-index: 2; pointer-events: none; padding: 16cqw 7cqw 7cqw; display: flex; flex-direction: column; justify-content: center; overflow: hidden;
+.aym-story-slide { position: absolute; inset: 0; z-index: 2; pointer-events: none; padding: 16cqw 7cqw 7cqw; display: flex; flex-direction: column; justify-content: safe center; overflow: hidden;   /* safe: 내용이 넘쳐도 위쪽(진행 막대 아래)부터 시작한다 */
   background: radial-gradient(130% 80% at 50% -5%, color-mix(in srgb, var(--tint) 62%, #0e0e10) 0%, color-mix(in srgb, var(--tint) 18%, #0e0e10) 55%, #0e0e10 100%); animation: aym-fade 320ms ease-out both; }
 .aym-story-slide::before { content: ""; position: absolute; width: 90cqw; height: 90cqw; border-radius: 50%; right: -30cqw; top: -20cqw; background: var(--tint); opacity: 0.28; filter: blur(18cqw); animation: aym-drift 9s ease-in-out infinite alternate; pointer-events: none; }
 @keyframes aym-drift { to { transform: translate(-14cqw, 10cqw) scale(1.15); } }
@@ -313,7 +313,8 @@ a { color: inherit; }
 .aym-story-recap b { display: block; font-size: 4.4cqw; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 700px) {
   .aym-story-nav { display: none; }
-  .aym-story { width: 100vw; height: 100svh; border-radius: 0; }
+  /* 폰: 화면을 가득 채우되, 가로가 넓은 창에서는 9:16 을 넘지 않게 폭을 줄인다 (뚱뚱한 카드에서는 내용이 넘친다) */
+  .aym-story { width: min(100vw, calc(100svh * 9 / 16)); height: 100svh; border-radius: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .aym-story-slide::before { animation: none; }

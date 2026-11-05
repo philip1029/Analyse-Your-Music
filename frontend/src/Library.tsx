@@ -225,7 +225,7 @@ export function Library({ query, request }: { query: (extra?: Record<string, str
   const sortInfo = SORTS.find((x) => x.id === sort);
 
   return (
-    <div id="library" style={{ textAlign: "left", maxWidth: 980, margin: "0 auto" }}>
+    <div id="library" style={{ textAlign: "left" }}>
       <div className="aym-h3">
         <h3>라이브러리</h3>
         <span>아티스트·앨범·곡 순위와 상세</span>

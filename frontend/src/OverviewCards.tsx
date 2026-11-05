@@ -105,14 +105,14 @@ export function OverviewCards({
           {isAllTime ? (
             <p className="aym-lede aym-rise">
               {firstScrobble ? <><b>{plain(firstScrobble)}</b>부터 </> : null}
-              <b className="num"><Num value={totalScrobbles} duration={1100} align="end" /></b>번 들었고,<br />음악을{" "}
-              <b className="num"><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} align="end" /></b> 들었어요.
+              <b className="num"><Num value={totalScrobbles} duration={1100} /></b>번 들었고,<br />음악을{" "}
+              <b className="num"><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} /></b> 들었어요.
             </p>
           ) : (
             <p className="aym-lede aym-rise">
-              이 기간에 음악을 <b className="num"><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} align="end" /></b> 들었어요.
+              이 기간에 음악을 <b className="num"><Num value={timeSummary.total_seconds} format={fmtHM} duration={1100} /></b> 들었어요.
               {scrobbleDelta !== null && (
-                <><br />직전 같은 기간보다 스크로블이 <b className="num"><Num value={Math.abs(Math.round(scrobbleDelta))} align="end" />%</b> {scrobbleDelta >= 0 ? "늘었어요" : "줄었어요"}.</>
+                <><br />직전 같은 기간보다 스크로블이 <b className="num"><Num value={Math.abs(Math.round(scrobbleDelta))} />%</b> {scrobbleDelta >= 0 ? "늘었어요" : "줄었어요"}.</>
               )}
             </p>
           )}

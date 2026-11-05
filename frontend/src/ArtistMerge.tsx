@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { BASE_URL } from "./config";
 import { Cover } from "./Cover";
-import { CAT } from "./theme";
+import { CAT, catPill } from "./theme";
 
-// 같은 사람인데 이름이 다른 아티스트(예: 검정치마 / The Black Skirts)를 하나로 합치는 화면 (Library 의 "아티스트 병합").
+// 같은 사람인데 이름이 다른 아티스트(예: 검정치마 / The Black Skirts)를 하나로 합치거나, 아티스트 이름을 다른 이름으로 바꾸는 화면 (Library 의 "아티스트 병합").
+// "이름 바꾸기"는 같은 규칙·백업·되돌리기 장치를 쓰되, 바꿀 이름이 기록에 없는 새 이름이어도 된다 (합치기는 오타를 막으려고 기록에 있는 이름만 받는다).
 // 통일 이름은 Last.fm 이 쓰는 표기(L 행이 많은 쪽)를 권한다. 합치면 data CSV 를 백업하고 변경 기록을 남기며,
 // 규칙(config/artist_merge.txt)이 남아서 이후 새로고침 때 같은 이름의 새 기록도 자동으로 합쳐진다.
 
 type Stats = { name: string; A: number; L: number; total: number };
-type Preview = { variant: Stats; canonical: Stats; suggest_swap: boolean; collisions: number; error: string | null };
+type Preview = { variant: Stats; canonical: Stats; suggest_swap: boolean; collisions: number; error: string | null; rename?: boolean };
 type Rule = { variant: string; canonical: string; pending: boolean; restorable: number };
 
 // 이름 입력 + 기존 아티스트 자동완성 (선택한 기간과 상관없이 전체 기록에서 찾는다)
@@ -81,6 +82,9 @@ export function MergeArtists({ onPair }: { onPair?: (artist: string) => void }) 
   const [message, setMessage] = useState<string | null>(null);
   const [rules, setRules] = useState<Rule[]>([]);
   const [justMerged, setJustMerged] = useState<string | null>(null);   // 방금 합친 아티스트(통일 이름): 앨범·곡 짝짓기로 이어 가기
+  const [mode, setMode] = useState<"merge" | "rename">("merge");
+  const [newName, setNewName] = useState("");                          // 이름 바꾸기: 새 이름 (바꿀 아티스트는 a)
+  const [renPrev, setRenPrev] = useState<Preview | null>(null);
 
   const loadRules = useCallback(() => {
     fetch(`${BASE_URL}/api/artist-merge/rules`)
@@ -89,6 +93,49 @@ export function MergeArtists({ onPair }: { onPair?: (artist: string) => void }) 
       .catch(() => {});
   }, []);
   useEffect(loadRules, [loadRules]);
+
+  // 이름 바꾸기: 바꿀 아티스트와 새 이름이 정해질 때마다 미리보기 (새 이름이 기록에 없어도 된다)
+  useEffect(() => {
+    if (mode !== "rename" || !a.trim() || !newName.trim()) {
+      setRenPrev(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      fetch(`${BASE_URL}/api/artist-merge/preview?variant=${encodeURIComponent(a)}&canonical=${encodeURIComponent(newName)}&rename=true`, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((d) => setRenPrev(d.error && !d.variant ? null : (d as Preview)))
+        .catch(() => {});
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [mode, a, newName]);
+
+  const rename = async () => {
+    if (!renPrev || renPrev.error) return;
+    const joins = !renPrev.rename;      // 이미 기록에 있는 이름이면 이름 바꾸기가 곧 합치기
+    if (!window.confirm(`‘${a}’ 의 기록 ${renPrev.variant.total.toLocaleString()}행의 이름을 ‘${newName.trim()}’ 로 ${joins ? `바꾸며 기존 ‘${newName.trim()}’ 기록과 합칩니다` : "바꿉니다"}.\n(data CSV 는 먼저 백업되고, 아래 목록의 “되돌리기”로 원래 이름으로 돌릴 수 있어요)`)) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await (await fetch(`${BASE_URL}/api/artist-merge`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ variant: a, canonical: newName, rename: true }) })).json();
+      if (res.error) setMessage(`실패: ${res.error}`);
+      else {
+        setMessage(`${res.rename ? "이름을 바꿨어요" : "합쳤어요"}: ‘${res.variant}’ → ‘${res.canonical}’ (${res.applied_rows.toLocaleString()}행${res.backup ? ` · 백업 ${res.backup}` : ""})`);
+        if (!res.rename) setJustMerged(res.canonical);
+        setA("");
+        setNewName("");
+        setRenPrev(null);
+        loadRules();
+      }
+    } catch (e) {
+      setMessage(`실패: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   // 두 이름이 정해질 때마다 미리보기를 받고, 통일 이름은 Last.fm 표기(L 행이 많은 쪽)로 자동 제안한다
   const variantName = keepFirst ? b : a;
@@ -157,19 +204,63 @@ export function MergeArtists({ onPair }: { onPair?: (artist: string) => void }) 
 
   return (
     <>
-      <h2 style={{ marginTop: 0, borderLeft: `4px solid ${CAT.artist.main}`, paddingLeft: "0.6rem" }}>아티스트 병합</h2>
-      <p style={{ color: "#999", fontSize: "0.9rem", marginTop: 0 }}>
-        같은 사람인데 이름이 다른 아티스트(예: 검정치마 / The Black Skirts)를 하나로 합쳐요. 합치면 두 이름의 모든 기록이 통일 이름으로 바뀌고, 규칙이 저장돼서
-        이후 새로고침 때 같은 이름의 새 기록도 자동으로 합쳐집니다. 합치기 전에 data CSV 를 백업하고 변경 기록(data/artist_normalize_log.csv)을 남겨요.
-      </p>
+      <h2 style={{ marginTop: 0 }}>아티스트 병합 · 이름 바꾸기</h2>
+      <div className="aym-seg" role="group" aria-label="작업 종류" style={{ margin: "0.2rem 0 0.9rem" }}>
+        <button aria-pressed={mode === "merge"} onClick={() => setMode("merge")}>합치기</button>
+        <button aria-pressed={mode === "rename"} onClick={() => setMode("rename")}>이름 바꾸기</button>
+      </div>
+      {mode === "merge" ? (
+        <p style={{ color: "var(--text-3)", fontSize: "0.9rem", marginTop: 0 }}>
+          같은 사람인데 이름이 다른 아티스트(예: 검정치마 / The Black Skirts)를 하나로 합쳐요. 합치면 두 이름의 모든 기록이 통일 이름으로 바뀌고, 규칙이 저장돼서
+          이후 새로고침 때 같은 이름의 새 기록도 자동으로 합쳐집니다. 합치기 전에 data CSV 를 백업하고 변경 기록(data/artist_normalize_log.csv)을 남겨요.
+        </p>
+      ) : (
+        <p style={{ color: "var(--text-3)", fontSize: "0.9rem", marginTop: 0 }}>
+          아티스트의 이름을 다른 이름으로 바꿔요 (예: THORNAPPLE → 쏜애플). <b style={{ color: "var(--text-2)" }}>새 이름이 기록에 없어도 돼요.</b> 그 아티스트의 모든 기록 이름이 바뀌고,
+          규칙이 저장돼서 이후 새로고침 때 같은 옛 이름의 새 기록도 자동으로 새 이름이 됩니다. 사진·장르 태그는 새 이름으로 다시 찾아요. 바꾸기 전에 data CSV 를 백업하고, 아래 목록의 “되돌리기”로 원래 이름으로 돌릴 수 있어요.
+        </p>
+      )}
 
+      {mode === "rename" ? (
+        <>
+          <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "flex-end", margin: "1rem 0" }}>
+            <ArtistPicker label="바꿀 아티스트" value={a} onChange={setA} />
+            <div style={{ flex: "1 1 260px" }}>
+              <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-3)", marginBottom: 4 }}>새 이름</div>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && renPrev && !renPrev.error && !busy && rename()} placeholder="바꿀 새 이름" style={{ width: "100%", padding: "0.5rem 0.7rem" }} />
+            </div>
+          </div>
+          {renPrev && (
+            <div className="aym-panel" style={{ marginBottom: "1rem" }}>
+              <div style={{ fontSize: "0.9rem", lineHeight: 1.7 }}>
+                <div>
+                  <b>{a}</b> <span style={{ color: "var(--text-3)" }}>→</span> <b>{newName.trim()}</b>
+                </div>
+                <div style={{ color: "var(--text-2)" }}>바뀌는 기록: {src(renPrev.variant)}</div>
+                {!renPrev.error && (
+                  <div style={{ color: renPrev.rename ? "var(--album)" : "#e0a800" }}>
+                    {renPrev.rename ? "기록에 없는 새 이름이에요. 이름만 바뀌어요." : `이미 기록에 있는 이름이에요 (${src(renPrev.canonical)}). 두 이름이 합쳐져요.`}
+                  </div>
+                )}
+              </div>
+              {renPrev.error && <p style={{ color: "#e07070", margin: "0.7rem 0 0" }}>{renPrev.error}</p>}
+              <div style={{ marginTop: "0.9rem" }}>
+                <button onClick={rename} disabled={busy || !!renPrev.error} style={{ fontWeight: 700 }}>
+                  {busy ? "바꾸는 중..." : renPrev.rename ? "이름 바꾸기" : "바꾸고 합치기"}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
       <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", alignItems: "flex-end", margin: "1rem 0" }}>
         <ArtistPicker label="아티스트 1" value={a} onChange={(v) => { setA(v); setTouched(false); }} />
         <ArtistPicker label="아티스트 2" value={b} onChange={(v) => { setB(v); setTouched(false); }} />
       </div>
+      )}
 
-      {prev && (
-        <div style={{ border: "1px solid rgba(128,128,128,0.3)", borderRadius: 10, padding: "1rem 1.2rem", marginBottom: "1rem" }}>
+      {mode === "merge" && prev && (
+        <div className="aym-panel" style={{ marginBottom: "1rem" }}>
           <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "#999", marginBottom: 6 }}>통일 이름 (남는 이름)</div>
           <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
             {[
@@ -182,7 +273,7 @@ export function MergeArtists({ onPair }: { onPair?: (artist: string) => void }) 
                   setKeepFirst(o.first);
                   setTouched(true);
                 }}
-                style={{ padding: "0.35rem 0.9rem", fontWeight: keepFirst === o.first ? 700 : 400, border: keepFirst === o.first ? `2px solid ${CAT.artist.main}` : "1px solid #666" }}
+                style={catPill(keepFirst === o.first, CAT.artist.main)}
               >
                 {o.name}
               </button>
@@ -223,7 +314,7 @@ export function MergeArtists({ onPair }: { onPair?: (artist: string) => void }) 
 
       {rules.length > 0 && (
         <>
-          <h3 style={{ fontWeight: 400, marginTop: "2rem" }}>직접 합친 목록</h3>
+          <h3 style={{ marginTop: "2rem" }}>직접 합치거나 이름을 바꾼 목록</h3>
           <div style={{ fontSize: "0.9rem" }}>
             {rules.map((r) => (
               <div key={r.variant} style={{ padding: "0.4rem 0.25rem", borderBottom: "1px solid rgba(128,128,128,0.25)", display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>

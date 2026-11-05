@@ -53,6 +53,31 @@ class PreviewTest(unittest.TestCase):
         self.assertIn("기록에 없는", preview(df, "Nobody", "Other", self.path)["error"])
         self.assertIn("두 명", preview(df, "", "Other", self.path)["error"])
 
+    def test_rename_allows_a_new_name_only_in_rename_mode(self):
+        df = frame()
+        # 합치기는 오타를 막으려고 기록에 없는 이름을 계속 거절한다
+        self.assertIn("기록에 없는", preview(df, "Other", "다른 이름", self.path)["error"])
+        # 이름 바꾸기는 새 이름을 받고, rename=True 로 알려 준다
+        p = preview(df, "Other", "다른 이름", self.path, allow_new=True)
+        self.assertIsNone(p["error"])
+        self.assertTrue(p["rename"])
+        self.assertEqual((p["variant"]["total"], p["canonical"]["total"], p["collisions"]), (3, 0, 0))
+        # 바꿀 아티스트 자체는 기록에 있어야 한다
+        self.assertIn("기록에 없는", preview(df, "Nobody", "새 이름", self.path, allow_new=True)["error"])
+        # 이미 기록에 있는 이름으로 "바꾸면" 새 이름이 아니라 합치기와 같다
+        same = preview(df, "The Black Skirts", "검정치마", self.path, allow_new=True)
+        self.assertIsNone(same["error"])
+        self.assertFalse(same["rename"])
+        # 문구와 규칙 파일 형식을 깨는 이름
+        self.assertIn("지금과 다른", preview(df, "Other", "Other", self.path, allow_new=True)["error"])
+        self.assertIn("바꿀 이름", preview(df, "Other", "  ", self.path, allow_new=True)["error"])
+        self.assertIn("->", preview(df, "Other", "A -> B", self.path, allow_new=True)["error"])
+        self.assertIn("줄바꿈", preview(df, "Other", "A\nB", self.path, allow_new=True)["error"])
+
+    def test_rename_respects_existing_rules(self):
+        add_rule(self.path, "Other", "다른 이름")
+        self.assertIn("이미", preview(frame(), "Other", "또 다른 이름", self.path, allow_new=True)["error"])
+
     def test_collision_blocks_merge(self):
         df = frame()
         dup = df[df["artist"] == "검정치마"].head(1).assign(artist="The Black Skirts")   # 같은 uts·곡이 양쪽에 있음

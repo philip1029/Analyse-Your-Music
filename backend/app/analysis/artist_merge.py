@@ -39,18 +39,25 @@ def load_rules(path: Path) -> dict[str, str]:
     return rules
 
 
-def preview(df: pd.DataFrame, variant: str, canonical: str, rules_path: Path) -> dict:
-    """합치기 전 확인: 두 이름의 행 수(A/L), 권하는 통일 이름, 막아야 하는 문제(error)."""
+def preview(df: pd.DataFrame, variant: str, canonical: str, rules_path: Path, allow_new: bool = False) -> dict:
+    """합치기 전 확인: 두 이름의 행 수(A/L), 권하는 통일 이름, 막아야 하는 문제(error).
+
+    allow_new=True 는 "이름 바꾸기": 통일 이름이 기록에 없는 새 이름이어도 된다 (합칠 때는 오타를 막으려고 기록에 있는 이름만 받는다).
+    새 이름이면 결과에 rename=True 가 붙는다. 바꿀 아티스트(variant)는 어느 경우든 기록에 있어야 한다."""
     variant, canonical = variant.strip(), canonical.strip()
     v, c = _stats(df, variant), _stats(df, canonical)
-    out = {"variant": v, "canonical": c, "suggest_swap": False, "collisions": 0, "error": None}
+    out = {"variant": v, "canonical": c, "suggest_swap": False, "collisions": 0, "error": None, "rename": bool(allow_new and canonical and c["total"] == 0)}
 
     if not variant or not canonical:
-        out["error"] = "합칠 아티스트 두 명을 모두 고르세요."
+        out["error"] = "바꿀 이름을 모두 적으세요." if allow_new else "합칠 아티스트 두 명을 모두 고르세요."
     elif variant == canonical:
-        out["error"] = "서로 다른 아티스트를 고르세요."
-    elif v["total"] == 0 or c["total"] == 0:
-        out["error"] = f"기록에 없는 아티스트예요: {variant if v['total'] == 0 else canonical}"
+        out["error"] = "지금과 다른 이름을 적으세요." if allow_new else "서로 다른 아티스트를 고르세요."
+    elif any(t in canonical for t in ("->", "\n", "\r")):
+        out["error"] = "이름에는 ‘->’ 나 줄바꿈을 쓸 수 없어요 (규칙 파일 형식과 겹쳐요)."
+    elif v["total"] == 0:
+        out["error"] = f"기록에 없는 아티스트예요: {variant}"
+    elif c["total"] == 0 and not allow_new:
+        out["error"] = f"기록에 없는 아티스트예요: {canonical}"
     else:
         rules = load_rules(rules_path)
         if variant in rules:

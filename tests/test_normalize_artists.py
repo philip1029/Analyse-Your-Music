@@ -2,10 +2,14 @@
     python3 -m unittest discover -s tests -v
 """
 
+import contextlib
+import csv
+import io
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
@@ -83,6 +87,23 @@ class ManualMergeTest(unittest.TestCase):
             self.assertEqual(na.apply_manual_merges(m, [], stats, {"Parannoul": "파란노을"}), set())
             self.assertEqual(m, {})
 
+    def test_new_name_is_applied_only_when_explicitly_allowed(self):
+        # 이름 바꾸기: 통일 이름이 데이터에 없어도, 이번 실행에서 허용한 새 이름이면 규칙이 먹는다
+        stats = {"THORNAPPLE": S(a=133)}
+        m, groups = {}, []
+        self.assertEqual(na.apply_manual_merges(m, groups, stats, {"THORNAPPLE": "쏜애플"}), set())          # 평소에는 오타 방지로 무시
+        self.assertEqual(m, {})
+        applied = na.apply_manual_merges(m, groups, stats, {"THORNAPPLE": "쏜애플"}, allow_new={"쏜애플"})
+        self.assertEqual((m, applied), ({"THORNAPPLE": "쏜애플"}, {"THORNAPPLE"}))
+        self.assertEqual(groups, [("쏜애플", ["THORNAPPLE"])])
+        # 허용한 이름이어도 바꿀 이름(변형)이 데이터에 없으면 아무것도 하지 않는다
+        m2 = {}
+        self.assertEqual(na.apply_manual_merges(m2, [], {"Other": S(a=1)}, {"THORNAPPLE": "쏜애플"}, allow_new={"쏜애플"}), set())
+        self.assertEqual(m2, {})
+        # 허용 목록에 없는 다른 새 이름 규칙은 여전히 무시된다
+        m3 = {}
+        self.assertEqual(na.apply_manual_merges(m3, [], stats, {"THORNAPPLE": "엉뚱한 이름"}, allow_new={"쏜애플"}), set())
+
     def test_manual_merge_follows_automatic_rename_of_target(self):
         stats = {"X": S(a=1), "Foo Bar": S(a=1), "foo bar": S(l=3)}
         m, _, _ = na.build_mapping(stats)
@@ -96,6 +117,50 @@ class ManualMergeTest(unittest.TestCase):
             p.write_text("# 주석\n\nA -> B\n bad line\nC->D\nE -> E\n", encoding="utf-8")
             self.assertEqual(na.load_manual_merges(p), {"A": "B", "C": "D"})
             self.assertEqual(na.load_manual_merges(Path(d) / "none.txt"), {})
+
+
+class RenameEndToEndTest(unittest.TestCase):
+    """실제 CSV 로 끝까지: 새 이름으로 바꾸고, 그 뒤 들어온 같은 이름의 새 기록도 규칙으로 따라 바뀐다."""
+
+    HEADER = ["uts", "utc_time", "artist", "album", "track", "source"]
+
+    def write_rows(self, path, rows):
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.DictWriter(f, fieldnames=self.HEADER)
+            w.writeheader()
+            for u, artist, source in rows:
+                w.writerow({"uts": u, "utc_time": f"t{u}", "artist": artist, "album": "a", "track": f"song{u}", "source": source})
+
+    def read_artists(self, path):
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            return {r["uts"]: r["artist"] for r in csv.DictReader(f)}
+
+    def run_script(self, d, *extra):
+        argv = ["normalize_artists.py", "--data-dir", str(d), "--keep-separate", str(d / "none.txt"), "--manual-merge", str(d / "artist_merge.txt"), "--apply", "--json", *extra]
+        with mock.patch.object(sys, "argv", argv), mock.patch.object(na, "CANONICAL_FILE", d / "artist_canonical.txt"), contextlib.redirect_stdout(io.StringIO()):
+            na.main()
+
+    def test_rename_to_new_name_then_new_scrobbles_follow_the_rule(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = Path(t)
+            csv_path = d / "me_scrobbles.csv"
+            self.write_rows(csv_path, [("1", "THORNAPPLE", "A"), ("2", "THORNAPPLE", "A"), ("3", "Other", "L")])
+            (d / "artist_merge.txt").write_text("THORNAPPLE -> 쏜애플\n", encoding="utf-8")
+
+            self.run_script(d)                                           # 허용 없이는 새 이름 규칙이 무시된다
+            self.assertEqual(set(self.read_artists(csv_path).values()), {"THORNAPPLE", "Other"})
+
+            self.run_script(d, "--allow-new", "쏜애플")                  # 이름 바꾸기: 허용한 새 이름
+            self.assertEqual(self.read_artists(csv_path), {"1": "쏜애플", "2": "쏜애플", "3": "Other"})
+            self.assertTrue(list(d.glob("*.bak_artistnorm_*")))          # 백업이 남는다
+            with open(d / "artist_normalize_log.csv", newline="", encoding="utf-8-sig") as f:
+                log = list(csv.DictReader(f))
+            self.assertEqual([(r["old_artist"], r["new_artist"], r["rule"]) for r in log], [("THORNAPPLE", "쏜애플", "manual_merge")] * 2)
+
+            # 새로고침으로 같은 옛 이름의 새 기록이 들어와도, 이제 새 이름이 기록에 있으므로 허용 없이 규칙대로 바뀐다
+            self.write_rows(csv_path, [("1", "쏜애플", "A"), ("2", "쏜애플", "A"), ("3", "Other", "L"), ("4", "THORNAPPLE", "L")])
+            self.run_script(d)
+            self.assertEqual(self.read_artists(csv_path)["4"], "쏜애플")
 
 
 if __name__ == "__main__":

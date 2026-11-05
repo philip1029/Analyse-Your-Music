@@ -75,11 +75,13 @@ def load_manual_merges(path):
     return merges
 
 
-def apply_manual_merges(mapping, groups, stats, manual):
-    """수동 목록을 mapping 에 더한다. 데이터에 실제로 있는 이름만, 통일 이름이 이미 다른 이름으로 바뀌면 그쪽을 따른다."""
+def apply_manual_merges(mapping, groups, stats, manual, allow_new=frozenset()):
+    """수동 목록을 mapping 에 더한다. 데이터에 실제로 있는 이름만, 통일 이름이 이미 다른 이름으로 바뀌면 그쪽을 따른다.
+    allow_new: 데이터에 아직 없어도 통일 이름으로 받아들일 새 이름들 ("이름 바꾸기"에서만 넘긴다). 오타로 적힌 규칙이 엉뚱한 새 이름을
+    만들지 않도록 평소에는 비어 있고, 한 번 적용되면 새 이름이 데이터에 생겨서 이후 실행은 이 목록 없이도 같은 규칙이 먹는다."""
     applied = set()
     for v, c in manual.items():
-        if v not in stats or c not in stats:
+        if v not in stats or (c not in stats and c not in allow_new):
             continue
         final = mapping.get(c, c)
         if v == final:
@@ -121,6 +123,8 @@ def main():
     ap.add_argument("--data-dir", default=str(pp.DEFAULT_DATA_DIR))
     ap.add_argument("--keep-separate", default=str(KEEP_SEPARATE_FILE))
     ap.add_argument("--manual-merge", default=str(MANUAL_MERGE_FILE))
+    ap.add_argument("--allow-new", action="append", default=[], metavar="NAME",
+                    help="데이터에 없는 새 이름도 통일 이름으로 허용 (이름 바꾸기). 여러 번 줄 수 있다")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--json", action="store_true", help="마지막 줄에 결과를 JSON 한 줄로도 출력 (앱이 읽는 용도)")
     args = ap.parse_args()
@@ -140,7 +144,7 @@ def main():
             stats[r["artist"]][r.get("source", "L")] += 1
     keep = load_keep_separate(args.keep_separate)
     mapping, groups, skipped = build_mapping(stats, keep)
-    manual_applied = apply_manual_merges(mapping, groups, stats, load_manual_merges(args.manual_merge))
+    manual_applied = apply_manual_merges(mapping, groups, stats, load_manual_merges(args.manual_merge), set(args.allow_new))
 
     changed = Counter()
     for r in rows:

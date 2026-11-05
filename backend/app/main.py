@@ -884,11 +884,12 @@ ARTIST_MERGE_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "
 
 
 @app.get("/api/artist-merge/preview")
-def artist_merge_preview(variant: str = "", canonical: str = ""):
+def artist_merge_preview(variant: str = "", canonical: str = "", rename: bool = False):
+    """rename=true 는 "이름 바꾸기": canonical 이 기록에 없는 새 이름이어도 된다."""
     df = get_filtered_df(None, None)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
-    return artist_merge.preview(df, variant, canonical, ARTIST_MERGE_FILE)
+    return artist_merge.preview(df, variant, canonical, ARTIST_MERGE_FILE, allow_new=rename)
 
 
 @app.get("/api/artist-merge/rules")
@@ -907,6 +908,7 @@ def artist_merge_rules():
 class ArtistMergeBody(BaseModel):
     variant: str
     canonical: str
+    rename: bool = False      # True: 이름 바꾸기 (canonical 이 기록에 없는 새 이름이어도 된다)
 
 
 @app.post("/api/artist-merge")
@@ -915,13 +917,16 @@ def artist_merge_apply(body: ArtistMergeBody):
     df = get_filtered_df(None, None)
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
-    check = artist_merge.preview(df, body.variant, body.canonical, ARTIST_MERGE_FILE)
+    check = artist_merge.preview(df, body.variant, body.canonical, ARTIST_MERGE_FILE, allow_new=body.rename)
     if check["error"]:
         return {"error": check["error"]}
     script = Path(__file__).resolve().parent.parent.parent / "scripts" / "normalize_artists.py"
     before = artist_merge.add_rule(ARTIST_MERGE_FILE, body.variant, body.canonical)
+    cmd = ["python3", str(script), "--apply", "--json"]
+    if body.rename and check["rename"]:
+        cmd += ["--allow-new", body.canonical.strip()]       # 새 이름은 이번 실행에서만 허용한다 (적용되면 이후엔 기록에 있는 이름이 된다)
     try:
-        run = subprocess.run(["python3", str(script), "--apply", "--json"], capture_output=True, text=True, timeout=120)
+        run = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         json_lines = [ln for ln in run.stdout.splitlines() if ln.startswith("{")]
         result = json.loads(json_lines[-1]) if run.returncode == 0 and json_lines else None
     except Exception as e:  # noqa: BLE001
@@ -930,7 +935,7 @@ def artist_merge_apply(body: ArtistMergeBody):
     if result is None:
         artist_merge.restore_rules(ARTIST_MERGE_FILE, before)
         return {"error": f"병합 실행에 실패했어요: {(run.stderr or run.stdout)[-300:]}"}
-    return {"applied_rows": result.get("changed_rows", 0), "backup": result.get("backup"), "variant": body.variant, "canonical": body.canonical}
+    return {"applied_rows": result.get("changed_rows", 0), "backup": result.get("backup"), "variant": body.variant, "canonical": body.canonical, "rename": bool(check["rename"])}
 
 
 @app.post("/api/artist-merge/undo")

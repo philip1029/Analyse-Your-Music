@@ -5,6 +5,8 @@ import { ShareButton, ShareProvider } from "./Share";
 import { CatStat, OverviewCards } from "./OverviewCards";
 import { DecadeCard } from "./DecadeCard";
 import { TopCards } from "./TopCards";
+import { Milestones } from "./Milestones";
+import { ComebackList } from "./Comeback";
 import { ReplayButton } from "./ReplayStory";
 import { FunFactCard } from "./FunFactCard";
 import { TagDistributionCard } from "./TagCompare";
@@ -1311,6 +1313,8 @@ const handleCopyPrompt = () => {
               isAllTime={!dateRange.start && !dateRange.end}
             />
 
+            <Milestones />
+
             <TopCards query={buildQuery} total={stats.total_scrobbles} onOpen={openInLibrary} onMore={openListInLibrary} />
 
             <FunFactCard />
@@ -1469,6 +1473,8 @@ const handleCopyPrompt = () => {
               <button onClick={() => openListInLibrary(discoveryCat, "first")}>전체 보기 (음악 · 처음 들은 순) →</button>
             </div>
             <DiscoveryList cat={discoveryCat} query={buildQuery} onOpen={openInLibrary} limit={5} />
+
+            <ComebackList cat={discoveryCat} onOpen={openInLibrary} />
           </>
         )}
       </section>

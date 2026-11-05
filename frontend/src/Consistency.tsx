@@ -36,7 +36,7 @@ export type ConsistencyResult = {
 };
 
 // 월별 재생 수 막대 미니 그래프 (전체 기간 달 기준이라 "지금은 안 듣는" 항목은 오른쪽이 비어 보인다)
-export function Sparkline({ monthly, months, width = 96, height = 20 }: { monthly: number[]; months: string[]; width?: number; height?: number }) {
+export function Sparkline({ monthly, months, width = 96, height = 20, color = "#8884d8" }: { monthly: number[]; months: string[]; width?: number; height?: number; color?: string }) {
   const max = Math.max(...monthly, 1);
   const bw = width / monthly.length;
   return (
@@ -44,7 +44,7 @@ export function Sparkline({ monthly, months, width = 96, height = 20 }: { monthl
       {monthly.map((c, i) => {
         const h = c === 0 ? 1 : Math.max(2, (c / max) * height);
         return (
-          <rect key={i} x={i * bw} y={height - h} width={Math.max(bw - 0.6, 0.5)} height={h} fill={c === 0 ? "#555" : "#8884d8"}>
+          <rect key={i} x={i * bw} y={height - h} width={Math.max(bw - 0.6, 0.5)} height={h} fill={c === 0 ? "rgba(255,255,255,0.18)" : color}>
             <title>{`${months[i]}: ${c}회`}</title>
           </rect>
         );

@@ -324,3 +324,6 @@ a { color: inherit; }
 /* RateYourMusic 검색 링크 */
 .aym-rym { display: inline-flex; align-items: center; gap: 3px; padding: 0.2rem 0.65rem; border-radius: 999px; background: var(--surface-2); color: var(--text-2); font-size: 0.75rem; font-weight: 700; text-decoration: none; white-space: nowrap; transition: background 0.15s, color 0.15s; }
 .aym-rym:hover { background: var(--surface-3); color: var(--text); }
+
+/* 문장 해설: 구역 중간에 들어가는 작은 크기 */
+.aym-lede.xs { font-size: clamp(1.15rem, 2.4vw, 1.5rem); line-height: 1.45; letter-spacing: -0.03em; margin-top: 0; }

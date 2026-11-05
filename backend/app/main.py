@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 from datetime import datetime
 import subprocess
@@ -42,11 +43,12 @@ from app.analysis.taste import (
 from app.analysis.diversity import compute_diversity
 from app.version_check import check_for_update, apply_update
 from app import apple_files, album_years
+from app.refresh_progress import RefreshProgress
 from app.analysis.decades import build_decades, list_albums
 from app.analysis.race import build_race
+from app.analysis import favorites
 from app.analysis.fun_facts import KST, build_facts
 from app.env_config import get_config_status, save_config
-from app.analysis import favorites
 from app.deps_install import install_deps
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
@@ -568,21 +570,79 @@ FILL_LIMIT = 60   # 새로고침 한 번에 길이를 조회할 최대 곡 수
 ALBUM_YEAR_REFRESH_LIMIT = 40   # 새로고침 뒤 백그라운드로 발매연도를 조회할 최대 앨범 수 (MusicBrainz 는 초당 1회라 앨범당 1~2초)
 
 
+refresh_progress = RefreshProgress()
+_PROGRESS_LINE = re.compile(r"\[progress\] (\d+)/(\d+)")
+
+
+def _run_fetch(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
+    """callData.py 를 돌리면서, 스크립트가 stderr 로 알리는 "[progress] 페이지/전체" 를 진행률에 반영한다."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    err_chunks: list[str] = []
+
+    def read_err():
+        buf = ""
+        while True:
+            ch = proc.stderr.read(1)
+            if not ch:
+                break
+            err_chunks.append(ch)
+            if ch in "\r\n":
+                m = _PROGRESS_LINE.search(buf)
+                if m:
+                    refresh_progress.sub(int(m.group(1)), int(m.group(2)), f"{m.group(1)}/{m.group(2)} 페이지")
+                buf = ""
+            else:
+                buf += ch
+
+    reader = threading.Thread(target=read_err, daemon=True)
+    reader.start()
+    timed_out = threading.Event()
+
+    def kill():
+        timed_out.set()
+        proc.kill()
+
+    timer = threading.Timer(timeout, kill)
+    timer.start()
+    try:
+        out = proc.stdout.read()
+        proc.wait()
+    finally:
+        timer.cancel()
+    reader.join(timeout=2)
+    proc.stdout.close()
+    proc.stderr.close()
+    if timed_out.is_set():
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    return subprocess.CompletedProcess(cmd, proc.returncode, out, "".join(err_chunks)[-2000:])
+
+
+@app.get("/api/refresh/status")
+def refresh_status():
+    """새로고침 진행 상황 (단계 이름과 백분율). 화면이 새로고침 중에 짧게 물어 진행률 막대를 그린다."""
+    return refresh_progress.snapshot()
+
+
 @app.post("/api/refresh")
 def refresh_scrobbles():
+    if not refresh_progress.start():
+        return {"success": False, "error": "이미 불러오는 중입니다. 끝날 때까지 기다려 주세요."}
+    try:
+        return _refresh_scrobbles()
+    finally:
+        refresh_progress.finish()
+
+
+def _refresh_scrobbles():
     username = os.environ.get("USERNAME")
     if not username:
         return {"success": False, "error": "USERNAME이 설정되지 않았습니다."}
 
     script_path = Path(__file__).resolve().parent.parent.parent / "scripts" / "callData.py"
 
+    refresh_progress.begin("fetch")
     try:
-        result = subprocess.run(
-            ["python3", str(script_path), username],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
+        result = _run_fetch(["python3", str(script_path), username], 120)
     except subprocess.TimeoutExpired:
         return {"success": False, "error": "스크립트 실행 시간 초과"}
 
@@ -591,6 +651,7 @@ def refresh_scrobbles():
 
     # 새로 받은 기록에 전처리(가짜/중복 기록 제거)를 적용한다. 실패해도 새로고침 자체는
     # 성공으로 둔다 (원본은 백업되고, 지운 행은 data/preprocess_removed.csv 에 남는다).
+    refresh_progress.begin("preprocess")
     preprocess = None
     pre_script = script_path.with_name("preprocess.py")
     try:
@@ -611,6 +672,7 @@ def refresh_scrobbles():
         preprocess = {"error": str(e)}
 
     # 아티스트 표기도 통일한다 (대소문자·띄어쓰기 차이 + config/artist_merge.txt 의 직접 병합 목록). 바꿀 행이 없으면 아무것도 쓰지 않는다.
+    refresh_progress.begin("artists")
     artists_norm = None
     art_script = script_path.with_name("normalize_artists.py")
     try:
@@ -632,6 +694,7 @@ def refresh_scrobbles():
 
     # 전처리 뒤에 곡/앨범 제목 표기를 Last.fm 표기로 통일한다 (Apple 기록의 대소문자 차이로 같은 곡이
     # 둘로 갈라지는 것을 막는다). 바꿀 행이 없으면 파일을 건드리지 않고, 바꾸면 백업과 기록을 남긴다.
+    refresh_progress.begin("titles")
     titles = None
     norm_script = script_path.with_name("normalize_titles.py")
     try:
@@ -653,6 +716,7 @@ def refresh_scrobbles():
 
     # 새로 생긴 곡의 길이를 채운다 (이미 아는 곡은 건너뛰고, 한 번에 FILL_LIMIT 곡까지만 해서 버튼이 오래 걸리지 않게
     # 한다. 남은 곡은 다음에 불러올 때 이어서 한다). 길이를 못 찾아도 새로고침은 성공이다.
+    refresh_progress.begin("durations")
     durations_result = None
     dur_script = script_path.with_name("fill_durations.py")
     try:
@@ -673,6 +737,7 @@ def refresh_scrobbles():
         durations_result = {"error": str(e)}
 
     # 새 아티스트의 태그(장르)도 소량 채운다 (Taste 탭 분포가 일부 아티스트만 덮는 것을 줄인다). 실패해도 새로고침은 성공이다.
+    refresh_progress.begin("tags")
     tags_result = None
     tag_script = script_path.with_name("fill_artist_tags.py")
     if os.environ.get("LASTFM_API_KEY"):
@@ -695,6 +760,7 @@ def refresh_scrobbles():
 
     # 새 앨범의 발매연도(Music by decade)는 응답을 기다리게 하지 않고 백그라운드로 채운다. MusicBrainz 는 초당 1회 제한이라 앨범당
     # 1~2초가 걸려서, 기다리면 새로고침이 수십 초 멈춘 것처럼 보인다. 이미 채우는 중이면 스크립트가 잠금을 보고 바로 끝난다.
+    refresh_progress.begin("years")
     years_result = None
     years_script = script_path.with_name("fill_album_years.py")
     try:
@@ -1032,6 +1098,37 @@ def library_track(name: str, artist: str = "", offset: int = 0, limit: int = 50,
     return track_detail(df, artist or None, name, max(0, offset), min(max(1, limit), 200), album or None) or {"error": "해당 곡의 기록이 없습니다."}
 
 
+FAVORITES_PATH = DATA_DIR / favorites.FILE_NAME
+
+
+@app.get("/api/favorites")
+def favorites_list():
+    """좋아요한 곡 목록 (최근에 누른 순). 기록이 없는 곡도 found=False 로 남겨 둔다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return {"items": favorites.list_favorites(FAVORITES_PATH, df)}
+
+
+class FavoriteBody(BaseModel):
+    artist: str | None = None
+    track: str
+    favorite: bool = True
+
+
+@app.post("/api/favorites")
+def favorites_set(body: FavoriteBody):
+    """곡 하나의 좋아요를 켜거나 끈다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    try:
+        changed = favorites.set_favorite(FAVORITES_PATH, df, body.artist, body.track, body.favorite)
+    except ValueError as e:
+        return {"error": str(e)}
+    return {"ok": True, "changed": changed, "items": favorites.list_favorites(FAVORITES_PATH, df)}
+
+
 @app.get("/api/album-art")
 def album_art(artist: str = "", album: str = ""):
     """앨범 커버 주소를 반환한다. 사용자가 직접 올린 커버가 있으면 그것을, 없으면 Last.fm album.getInfo(디스크 캐시)를 쓴다."""
@@ -1098,37 +1195,6 @@ def cover_check(limit: int = 30, top: int = 300):
 
 @app.get("/api/artist-art")
 def artist_art(artist: str = ""):
-FAVORITES_PATH = DATA_DIR / favorites.FILE_NAME
-
-
-@app.get("/api/favorites")
-def favorites_list():
-    """좋아요한 곡 목록 (최근에 누른 순). 기록이 없는 곡도 found=False 로 남겨 둔다."""
-    df = get_filtered_df(None, None)
-    if df is None:
-        return {"error": "data 폴더에 csv 파일이 없습니다."}
-    return {"items": favorites.list_favorites(FAVORITES_PATH, df)}
-
-
-class FavoriteBody(BaseModel):
-    artist: str | None = None
-    track: str
-    favorite: bool = True
-
-
-@app.post("/api/favorites")
-def favorites_set(body: FavoriteBody):
-    """곡 하나의 좋아요를 켜거나 끈다."""
-    df = get_filtered_df(None, None)
-    if df is None:
-        return {"error": "data 폴더에 csv 파일이 없습니다."}
-    try:
-        changed = favorites.set_favorite(FAVORITES_PATH, df, body.artist, body.track, body.favorite)
-    except ValueError as e:
-        return {"error": str(e)}
-    return {"ok": True, "changed": changed, "items": favorites.list_favorites(FAVORITES_PATH, df)}
-
-
     """아티스트 사진 주소를 반환한다. 사용자가 직접 올린 사진이 있으면 그것을, 없으면 Deezer 검색(디스크 캐시)을 쓴다."""
     manual = cover_overrides.get_url("artist", artist)
     if manual:

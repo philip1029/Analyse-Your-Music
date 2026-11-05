@@ -12,6 +12,7 @@ import { CAT, type Cat } from "./theme";
 import { ALL_TIME, PeriodBar } from "./PeriodBar";
 import { Skeleton } from "./motion";
 import { RankRow } from "./RankRow";
+import { RefreshBar } from "./RefreshBar";
 import { SearchBox } from "./Search";
 import { AppleFiles } from "./AppleFiles";
 import { makeFmt, withWeekday, type Metric } from "./format";
@@ -1112,9 +1113,10 @@ const handleCopyPrompt = () => {
 
       {/* 상단 컨트롤: 새로고침 (기간 선택은 탭 아래 PeriodBar 로 통합) */}
       <div style={{ marginBottom: "1rem", display: "flex", gap: "1rem", alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "0.5rem 1rem" }}>
+        <button onClick={handleRefresh} disabled={refreshing} style={{ padding: "0.5rem 1rem", flexShrink: 0 }}>
           {refreshing ? "업데이트 중..." : "🔄 최신 스크롭 불러오기"}
         </button>
+        <RefreshBar active={refreshing} />
         <SearchBox query={buildQuery} rangeLabel={dateRange.label} onPick={openInLibrary} />
       </div>
 

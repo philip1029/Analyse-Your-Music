@@ -52,7 +52,7 @@ cd scripts
 python3 callData.py
 ```
 
-`data/내유저네임_scrobbles.csv` 파일이 생성됩니다. 이후부터는 앱 안의 "🔄 최신 스크롭 불러오기" 버튼으로 갱신할 수 있습니다 (새 기록을 받은 직후 아래 전처리의 `--apply`도 자동으로 같이 실행됩니다).
+`data/내유저네임_scrobbles.csv` 파일이 생성됩니다. 이후부터는 앱 안의 "🔄 최신 스크롭 불러오기" 버튼으로 갱신할 수 있습니다 (새 기록을 받은 직후 아래 전처리의 `--apply`도 자동으로 같이 실행됩니다). 버튼 옆의 진행률 막대에 현재 단계(Last.fm 받기는 페이지 수까지)와 백분율이 표시됩니다.
 
 ### Apple Music 재생 기록도 같이 쓰고 싶다면
 
@@ -182,19 +182,6 @@ python3 scripts/fill_album_years.py               # 전체 (앨범 2천 개면 �
 python3 scripts/fill_album_years.py --apple-only  # MusicBrainz 없이 Apple 내보내기만으로 (몇 초)
 ```
 
-## AI 분석용 프롬프트 (Data 탭)
-
-복사해서 ChatGPT/Claude에 붙여넣을 분석용 프롬프트를 만듭니다. 네 가지 형태가 있습니다.
-
-- **전체 기간**: 위쪽에서 고른 날짜 범위 기준 (`/api/ai-prompt`).
-- **연간 / 월간 / 주간**: 고른 해(또는 달, 월~일 한 주)를 직전 기간(전년/직전 달/직전 주)과 비교합니다
-  (`/api/ai-prompt/period?period=year|month|week&anchor=YYYY|YYYY-MM|YYYY-MM-DD`, 기간 목록은 `/api/ai-prompt/periods`).
-  날짜 범위와 상관없이 전체 기록에서 계산하고, 기본값은 가장 최근에 끝난 기간입니다.
-  기록이 기간 전체를 덮지 못하면(진행 중이거나 데이터 시작 직후) "일부 기간"으로 표시하고 일평균 위주로 비교하라고 안내합니다.
-  구성: 기간 요약 / 청취량 흐름 / 순위(직전 기간 대비 신규·복귀) / 신규 발견 / 시간 패턴·연속 청취 세션 /
-  장르·언어권·집중도 / 분석 요청. 연간은 월별 표(월별 Top 아티스트·신규 아티스트 수), 연도별 추이, 연간 하이라이트
-  (가장 많이 들은 날, 최장 연속 청취일)가 추가됩니다.
-
 ## 좋아요(♥) 곡 (Music 탭)
 
 곡 목록(Top 10·Tracks, 앨범·아티스트 상세 페이지의 곡)의 ♡ 를 누르면 그 곡이 좋아요로 저장됩니다. 곡 상세 페이지 위쪽에도 큰 하트가 있습니다. Music 탭의 **♥ 좋아요**에서 모아 볼 수 있고, 최근 좋아요 순 / 재생 수 순 / 처음 들은 순으로 정렬하거나 **처음 들은 해**로 거를 수 있습니다 (예: 올해 처음 들은 곡 중 좋았던 곡).
@@ -207,6 +194,19 @@ python3 scripts/fill_album_years.py --apple-only  # MusicBrainz 없이 Apple 내
 python3 scripts/import_favorites.py list.txt          # 매칭 결과만 확인
 python3 scripts/import_favorites.py list.txt --apply  # 저장
 ```
+
+## AI 분석용 프롬프트 (Data 탭)
+
+복사해서 ChatGPT/Claude에 붙여넣을 분석용 프롬프트를 만듭니다. 네 가지 형태가 있습니다.
+
+- **전체 기간**: 위쪽에서 고른 날짜 범위 기준 (`/api/ai-prompt`).
+- **연간 / 월간 / 주간**: 고른 해(또는 달, 월~일 한 주)를 직전 기간(전년/직전 달/직전 주)과 비교합니다
+  (`/api/ai-prompt/period?period=year|month|week&anchor=YYYY|YYYY-MM|YYYY-MM-DD`, 기간 목록은 `/api/ai-prompt/periods`).
+  날짜 범위와 상관없이 전체 기록에서 계산하고, 기본값은 가장 최근에 끝난 기간입니다.
+  기록이 기간 전체를 덮지 못하면(진행 중이거나 데이터 시작 직후) "일부 기간"으로 표시하고 일평균 위주로 비교하라고 안내합니다.
+  구성: 기간 요약 / 청취량 흐름 / 순위(직전 기간 대비 신규·복귀) / 신규 발견 / 시간 패턴·연속 청취 세션 /
+  장르·언어권·집중도 / 분석 요청. 연간은 월별 표(월별 Top 아티스트·신규 아티스트 수), 연도별 추이, 연간 하이라이트
+  (가장 많이 들은 날, 최장 연속 청취일)가 추가됩니다.
 
 ## 스크로블 전처리 (`scripts/preprocess.py`)
 

@@ -137,6 +137,7 @@ def fetch_scrobbles_since(username, last_uts=None):
 
                 pbar.set_postfix({"신규 곡": len(new_scrobbles)})
                 pbar.update(1)
+                print(f"[progress] {page}/{total_pages}", file=sys.stderr, flush=True)    # 서버가 읽어 화면의 진행률 막대에 쓴다
                 page += 1
                 time.sleep(0.1)
 

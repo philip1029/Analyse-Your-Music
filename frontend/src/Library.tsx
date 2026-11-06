@@ -9,6 +9,7 @@ import { Num, Skeleton } from "./motion";
 import { RymLink } from "./RymLink";
 import { ShareButton } from "./Share";
 import { FavoritesView, HeartButton } from "./Favorites";
+import { SelectionButton } from "./Selection";
 import { CAT } from "./theme";
 import { CoverEditor, MissingCovers, type CoverTarget } from "./CoverFix";
 import { MissingArtists } from "./ArtistFix";
@@ -592,6 +593,7 @@ function ArtistView({ name, query, onOpen }: { name: string; query: (e?: Record<
         <button onClick={() => setEditing({ kind: "artist", artist: data.name, label: data.name })} title="아티스트 사진을 직접 지정" style={{ padding: "0.3rem 0.8rem", fontSize: "0.85rem" }}>
           사진 변경
         </button>
+        <SelectionButton item={{ kind: "artist", name: data.name, artist: null }} />
         <ShareButton spec={{ kind: "artist", name: data.name }} />
       </div>
       {editing && <CoverEditor target={editing} onClose={() => setEditing(null)} onSaved={() => setCoverVersion((v) => v + 1)} />}
@@ -649,6 +651,7 @@ function AlbumView({
             커버 변경
           </button>
         )}
+        <SelectionButton item={{ kind: "album", name: data.name, artist: data.artist }} />
         <ShareButton spec={{ kind: "album", name: data.name, artist: data.artist }} />
       </div>
       {editing && <CoverEditor target={editing} onClose={() => setEditing(null)} onSaved={() => setCoverVersion((v) => v + 1)} />}

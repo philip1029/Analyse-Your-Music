@@ -10,6 +10,7 @@ import { ComebackList } from "./Comeback";
 import { ReplayButton } from "./ReplayStory";
 import { FunFactCard } from "./FunFactCard";
 import { RecommendCard } from "./RecommendCard";
+import { SelectionPanel } from "./Selection";
 import { TagDistributionCard } from "./TagCompare";
 import { RaceTab } from "./Race";
 import { DiscoveryList } from "./DiscoveryList";
@@ -1670,6 +1671,12 @@ const handleCopyPrompt = () => {
               ]}
             />
         <div style={{ maxWidth: 860, textAlign: "left", display: "grid", gap: "1.2rem", marginTop: "1.6rem" }}>
+          {/* 선택한 아티스트·앨범만 내보내기 */}
+          <section style={DATA_PANEL}>
+            <h2 style={DATA_TITLE}>선택한 아티스트·앨범만 내보내기</h2>
+            <SelectionPanel query={buildQuery} />
+          </section>
+
           {/* AI 분석용 프롬프트 */}
           <section style={DATA_PANEL}>
             <h2 style={DATA_TITLE}>AI 분석용 프롬프트 생성</h2>

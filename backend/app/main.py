@@ -47,6 +47,7 @@ from app.refresh_progress import META_STEPS, RefreshProgress
 from app.analysis.decades import build_decades, list_albums
 from app.analysis.race import build_race
 from app.analysis.recommend import build_recommendations
+from app.analysis import selection
 from app.analysis import favorites
 from app.analysis.fun_facts import KST, build_facts
 from app.env_config import get_config_status, save_config
@@ -1177,6 +1178,59 @@ def favorites_set(body: FavoriteBody):
     except ValueError as e:
         return {"error": str(e)}
     return {"ok": True, "changed": changed, "items": favorites.list_favorites(FAVORITES_PATH, df)}
+
+
+class SelectionItem(BaseModel):
+    kind: str
+    name: str
+    artist: str | None = None
+
+
+class SelectionBody(BaseModel):
+    items: list[SelectionItem]
+
+
+def _selection_df(body: SelectionBody, start: str | None, end: str | None):
+    df = get_filtered_df(start, end)
+    return df, selection.normalize_items([i.model_dump() for i in body.items])
+
+
+@app.post("/api/selection/summary")
+def selection_summary(body: SelectionBody, start: str | None = None, end: str | None = None):
+    """선택한 아티스트·앨범의 항목별 재생 수와 합집합 합계 (선택 기간 안의 기록 기준)."""
+    df, items = _selection_df(body, start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return selection.summarize(df, items)
+
+
+@app.post("/api/selection/csv")
+def selection_csv(body: SelectionBody, start: str | None = None, end: str | None = None):
+    """선택한 항목의 기록만 CSV 로 내려준다."""
+    df, items = _selection_df(body, start, end)
+    if df is None:
+        return Response(content="data 폴더에 csv 파일이 없습니다.", status_code=404, media_type="text/plain; charset=utf-8")
+    if not items:
+        return Response(content="선택한 항목이 없습니다.", status_code=400, media_type="text/plain; charset=utf-8")
+    return Response(
+        content=selection.export_csv(df, items).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="analyse-your-music_selection.csv"'},
+    )
+
+
+@app.post("/api/selection/prompt")
+def selection_prompt(body: SelectionBody, start: str | None = None, end: str | None = None):
+    """선택한 항목만 담은 AI 분석용 프롬프트."""
+    df, items = _selection_df(body, start, end)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    if not items:
+        return {"error": "선택한 항목이 없습니다."}
+    result = selection.build_selection_prompt(df, items)
+    if result["prompt"] is None:
+        return {"error": "선택한 항목의 기록이 이 기간에 없습니다."}
+    return result
 
 
 @app.get("/api/album-art")

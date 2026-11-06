@@ -94,7 +94,7 @@ def apply_manual_merges(mapping, groups, stats, manual, allow_new=frozenset()):
 
 def build_mapping(stats, keep_separate=frozenset()):
     """
-    stats: {아티스트: {"A": 행 수, "L": 행 수}}
+    stats: {아티스트: {소스("A"/"L"/"M"…): 행 수}} (없는 소스는 0으로 본다)
     반환: (mapping {변형: 통일 이름}, groups [(통일 이름, [변형들])], skipped_no_lastfm [묶음])
     """
     by_key = defaultdict(list)
@@ -110,7 +110,7 @@ def build_mapping(stats, keep_separate=frozenset()):
         if not any(l_counts.values()):
             skipped.append(sorted(names))                       # Last.fm 표기를 알 수 없음
             continue
-        canonical = sorted(names, key=lambda n: (-l_counts[n], -(stats[n].get("A", 0) + l_counts[n]), n))[0]
+        canonical = sorted(names, key=lambda n: (-l_counts[n], -sum(stats[n].values()), n))[0]
         variants = sorted(n for n in names if n != canonical)
         for v in variants:
             mapping[v] = canonical
@@ -123,6 +123,7 @@ def main():
     ap.add_argument("--data-dir", default=str(pp.DEFAULT_DATA_DIR))
     ap.add_argument("--keep-separate", default=str(KEEP_SEPARATE_FILE))
     ap.add_argument("--manual-merge", default=str(MANUAL_MERGE_FILE))
+    ap.add_argument("--canonical-file", default=str(CANONICAL_FILE), help="적용한 변형 -> 통일 이름을 기록할 파일")
     ap.add_argument("--allow-new", action="append", default=[], metavar="NAME",
                     help="데이터에 없는 새 이름도 통일 이름으로 허용 (이름 바꾸기). 여러 번 줄 수 있다")
     ap.add_argument("--apply", action="store_true")
@@ -138,7 +139,7 @@ def main():
         raise SystemExit("data 폴더에 *_scrobbles.csv 가 없습니다.")
     header, rows = pp.read_csv(csv_path)
 
-    stats = defaultdict(lambda: {"A": 0, "L": 0})
+    stats = defaultdict(Counter)                    # 소스(A/L/M…)별 행 수 — 모르는 소스가 있어도 깨지지 않는다
     for r in rows:
         if r.get("artist"):
             stats[r["artist"]][r.get("source", "L")] += 1
@@ -156,9 +157,9 @@ def main():
     if skipped:
         print(f"  Last.fm 표기가 없어 건드리지 않은 묶음: {skipped}")
     print("  통일 결과 (변형 -> 통일 이름, 바뀌는 행 수):")
-    for canonical, variants in sorted(groups, key=lambda g: -sum(stats[v]["A"] + stats[v]["L"] for v in g[1])):
+    for canonical, variants in sorted(groups, key=lambda g: -sum(sum(stats[v].values()) for v in g[1])):
         for v in variants:
-            print(f"    '{v}' -> '{canonical}'  ({stats[v]['A'] + stats[v]['L']}행)")
+            print(f"    '{v}' -> '{canonical}'  ({sum(stats[v].values())}행)")
     changed_rows = sum(changed.values())
     if not args.apply:
         print("  (dry-run: 파일은 수정하지 않았습니다. 반영하려면 --apply)")
@@ -210,16 +211,17 @@ def main():
 
     # 이전 실행에서 적용한 변형도 보존하도록 기존 목록에 합친다 (덮어쓰면 앞선 기록이 사라진다)
     merged = {}
-    if CANONICAL_FILE.exists():
-        for line in CANONICAL_FILE.read_text(encoding="utf-8").splitlines():
+    canonical_file = Path(args.canonical_file)
+    if canonical_file.exists():
+        for line in canonical_file.read_text(encoding="utf-8").splitlines():
             if "->" in line and not line.lstrip().startswith("#"):
                 v, c = line.split("->", 1)
                 merged[v.strip()] = c.strip()
     merged.update(mapping)
     lines = ["# normalize_artists.py 가 만든 목록: 변형 -> Last.fm 표기 (대소문자·띄어쓰기 규칙 + config/artist_merge.txt 수동 목록)"]
     lines += [f"{v} -> {c}" for v, c in sorted(merged.items())]
-    CANONICAL_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"  반영 완료: {len(new_log)}행 (백업: {backup.name}, 기록: {log_path.name}, 설정: config/{CANONICAL_FILE.name}, "
+    canonical_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"  반영 완료: {len(new_log)}행 (백업: {backup.name}, 기록: {log_path.name}, 설정: {canonical_file.name}, "
           f"제거 기록 {n_ledger}행 갱신)")
     result(applied=True, changed_rows=len(new_log), groups=len(groups), backup=backup.name,
            merges=[{"variant": v, "canonical": c} for c, vs in groups for v in vs])

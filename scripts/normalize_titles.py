@@ -85,7 +85,7 @@ def build_title_mapping(rows, field):
     """
     반환: (mapping {(아티스트, 변형): 통일 표기}, groups [(아티스트, 통일 표기, [변형들])], skipped [(아티스트, [표기들])])
     """
-    stats = defaultdict(lambda: defaultdict(lambda: {"A": 0, "L": 0}))     # (아티스트, 키) -> 표기 -> 소스별 행 수
+    stats = defaultdict(lambda: defaultdict(Counter))     # (아티스트, 키) -> 표기 -> 소스별 행 수
     for r in rows:
         t = r.get(field, "")
         if t:
@@ -98,7 +98,7 @@ def build_title_mapping(rows, field):
         if not any(l_count.values()):
             skipped.append((artist, sorted(titles)))
             continue
-        total = {t: s["A"] + s["L"] for t, s in titles.items()}
+        total = {t: sum(s.values()) for t, s in titles.items()}
         canonical = sorted(titles, key=lambda t: (-l_count[t], -total[t], t))[0]
         variants = sorted(t for t in titles if t != canonical)
         for v in variants:

@@ -46,6 +46,7 @@ from app import apple_files, album_years
 from app.refresh_progress import META_STEPS, RefreshProgress
 from app.analysis.decades import build_decades, list_albums
 from app.analysis.race import build_race
+from app.analysis.recommend import build_recommendations
 from app.analysis import favorites
 from app.analysis.fun_facts import KST, build_facts
 from app.env_config import get_config_status, save_config
@@ -228,6 +229,15 @@ def time_summary_endpoint(start: str | None = None, end: str | None = None):
     if df is None:
         return {"error": "data 폴더에 csv 파일이 없습니다."}
     return time_summary(df)
+
+
+@app.get("/api/recommend")
+def recommend(salt: int = 0):
+    """오늘의 추천 앨범 (다시 들어볼 앨범 / 한 번만 들은 앨범 / 도전). 기간 선택과 상관없이 전체 기록 기준, 날짜와 salt 로 결과가 고정된다."""
+    df = get_filtered_df(None, None)
+    if df is None:
+        return {"error": "data 폴더에 csv 파일이 없습니다."}
+    return build_recommendations(df, salt=max(0, salt))
 
 
 @app.get("/api/overview/decades")

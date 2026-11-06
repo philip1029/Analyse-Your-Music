@@ -9,6 +9,7 @@ import { Milestones } from "./Milestones";
 import { ComebackList } from "./Comeback";
 import { ReplayButton } from "./ReplayStory";
 import { FunFactCard } from "./FunFactCard";
+import { RecommendCard } from "./RecommendCard";
 import { TagDistributionCard } from "./TagCompare";
 import { RaceTab } from "./Race";
 import { DiscoveryList } from "./DiscoveryList";
@@ -1318,6 +1319,7 @@ const handleCopyPrompt = () => {
             <TopCards query={buildQuery} total={stats.total_scrobbles} onOpen={openInLibrary} onMore={openListInLibrary} />
 
             <FunFactCard />
+            <RecommendCard onOpen={openInLibrary} />
 
             <div className="aym-h3">
               <h3>청취 활동 히트맵</h3>
